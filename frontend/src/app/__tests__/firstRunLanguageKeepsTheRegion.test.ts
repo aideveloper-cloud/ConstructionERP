@@ -45,50 +45,37 @@ afterEach(() => {
   window.localStorage.clear();
 });
 
-describe('resolveInitialLanguage', () => {
-  it('keeps a region the UI ships, so Brazil does not open in Portugal', () => {
-    // The regression this test exists for. The browser code was split on '-'
-    // and only the base kept, so pt-BR resolved to pt and a Brazilian first
-    // run opened in European Portuguese with pt-BR.ts sitting unused. Same
-    // for the three Spanish variants.
-    firstRunWith('pt-BR');
-    expect(resolveInitialLanguage()).toBe('pt-BR');
-  });
-
-  it('keeps every regional variant we actually ship', () => {
-    for (const code of ['pt-BR', 'es-MX', 'es-CL', 'es-CO', 'en-US']) {
+// ฉบับไทย: ภาษาเริ่มต้นเป็นไทยเสมอ เลือกได้เฉพาะไทย/อังกฤษ และไม่เดาจากภาษาเบราว์เซอร์
+// (ผู้ใช้ไทยจำนวนมากตั้งเบราว์เซอร์เป็นอังกฤษแต่ต้องการใช้ระบบเป็นไทย)
+describe('resolveInitialLanguage (Thai-first)', () => {
+  it('opens in Thai on a first run, whatever the browser language is', () => {
+    for (const code of ['en-US', 'pt-BR', 'de-CH', 'is-IS', 'th-TH']) {
       firstRunWith(code);
-      expect(resolveInitialLanguage()).toBe(code);
+      expect(resolveInitialLanguage()).toBe('th');
     }
   });
 
-  it('normalises the region the way i18next spells it', () => {
-    // A browser is free to send 'pt-br'; the resource bundle is registered
-    // under 'pt-BR' and that is the only spelling that finds it.
-    firstRunWith('pt-br');
-    expect(resolveInitialLanguage()).toBe('pt-BR');
-    firstRunWith('EN-us');
-    expect(resolveInitialLanguage()).toBe('en-US');
-  });
-
-  it('still falls back to the base language for a region we do not ship', () => {
-    // The behaviour that was already correct and must stay correct: there is
-    // no de-CH file, so a Swiss German browser gets German.
-    firstRunWith('de-CH');
-    expect(resolveInitialLanguage()).toBe('de');
-    firstRunWith('fr-CA');
-    expect(resolveInitialLanguage()).toBe('fr');
-  });
-
-  it('falls back to English for a language we do not ship at all', () => {
-    firstRunWith('is-IS');
+  it('keeps a stored choice of Thai or English', () => {
+    firstRunWith('th-TH');
+    window.localStorage.setItem('i18nextLng', 'en');
     expect(resolveInitialLanguage()).toBe('en');
+    window.localStorage.setItem('i18nextLng', 'th');
+    expect(resolveInitialLanguage()).toBe('th');
   });
 
-  it('lets a stored choice beat the browser, region and all', () => {
-    firstRunWith('pt-BR');
+  it('ignores a stored language the Thai edition does not offer', () => {
+    firstRunWith('en-US');
     window.localStorage.setItem('i18nextLng', 'de');
-    expect(resolveInitialLanguage()).toBe('de');
+    expect(resolveInitialLanguage()).toBe('th');
+  });
+
+  it('honours ?lang= only for an offered language', () => {
+    firstRunWith('en-US');
+    window.history.replaceState(null, '', '/?lang=en');
+    expect(resolveInitialLanguage()).toBe('en');
+    window.localStorage.clear();
+    window.history.replaceState(null, '', '/?lang=fr');
+    expect(resolveInitialLanguage()).toBe('th');
   });
 });
 

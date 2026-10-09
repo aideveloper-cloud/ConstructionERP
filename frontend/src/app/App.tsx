@@ -3,9 +3,7 @@
 import { Suspense, lazy, useState, useCallback, useEffect, useLayoutEffect, useContext, createContext } from 'react';
 import { Routes, Route, Navigate, Outlet, useLocation, useMatch, useParams } from 'react-router-dom';
 import { AppLayout } from './layout';
-import { DashboardPage } from '@/features/dashboard';
 import { LoginPage, RegisterPage, ForgotPasswordPage, ResetPasswordPage, AuthedHome } from '@/features/auth';
-import { ProjectsPage, CreateProjectPage, ProjectDetailPage, ProjectSettingsPage } from '@/features/projects';
 // Import the lightweight BOQ pages from their source modules directly,
 // NOT via the `@/features/boq` barrel.  The barrel re-exports
 // `BOQEditorPage`, which statically pulls `BOQGrid` → `ag-grid-react` +
@@ -14,16 +12,11 @@ import { ProjectsPage, CreateProjectPage, ProjectDetailPage, ProjectSettingsPage
 // defeated the `lazy(() => import('@/features/boq/BOQEditorPage'))` below
 // (V320-PERF-01).  Deep-importing the light pages severs that eager edge
 // so ag-grid stays in the lazy BOQ-editor chunk.
-import { BOQListPage } from '@/features/boq/BOQListPage';
-import { CreateBOQPage } from '@/features/boq/CreateBOQPage';
-import { TemplatesPage } from '@/features/boq/TemplatesPage';
 import { syncCustomUnitsFromServer } from '@/features/boq/boqHelpers';
 // Pure URL helpers, no React or grid code: safe on the eager edge.
 import { rulesTabFromParams } from '@/features/bim/quantityRuleLinks';
-import { NlRuleBuilderPanel } from '@/features/compliance';
 import { useModuleRouteElements } from '@/modules/ModuleRoutes';
 import { DatabaseSetupPage } from '@/features/setup';
-import { ModuleVideosSlot } from '@/features/videos/ModuleVideosSlot';
 import { Logo, ShortcutsDialog, CommandPalette, ToastContainer, DemoReadOnlyDialog, BackgroundInstallBanner, ErrorBoundary, NotFoundPage, ProductTour, OfflineBanner, PWAInstallPrompt } from '@/shared/ui';
 import { AdminOnly } from '@/shared/auth/AdminOnly';
 import GlobalSearchModal from '@/features/search/GlobalSearchModal';
@@ -43,6 +36,36 @@ import { ProjectRouteGate } from './ProjectRouteGate';
 import { getLanguageByCode } from './i18n';
 import { initErrorLogger } from '@/shared/lib/errorLogger';
 import { installDesktopExternalLinks } from '@/shared/lib/desktop';
+import { SHOW_UPSTREAM_EXTRAS } from './thai/flags';
+import { isBlockedInThaiEdition } from './thai/editionScope';
+import { NotInThaiEdition } from './thai/NotInThaiEdition';
+
+// ฉบับไทย (performance): หน้าที่เคย import ตรงๆ ถูกรวมอยู่ใน main bundle ทำให้หน้าแรก
+// ต้องโหลดโค้ดของแดชบอร์ดเดิม หน้าโครงการ (3,300 บรรทัด + widget) และ BOQ ทุกครั้ง
+// ตอนนี้โหลดเมื่อเปิดหน้านั้นจริงเท่านั้น (Suspense รอบ <Outlet/> รองรับอยู่แล้ว)
+const DashboardPage = lazy(() => import('@/features/dashboard').then((m) => ({ default: m.DashboardPage })));
+const ThaiOverviewPage = lazy(() =>
+  import('@/features/th-overview/ThaiOverviewPage').then((m) => ({ default: m.ThaiOverviewPage })),
+);
+const ProjectsPage = lazy(() => import('@/features/projects/ProjectsPage').then((m) => ({ default: m.ProjectsPage })));
+const CreateProjectPage = lazy(() =>
+  import('@/features/projects/CreateProjectPage').then((m) => ({ default: m.CreateProjectPage })),
+);
+const ProjectDetailPage = lazy(() =>
+  import('@/features/projects/ProjectDetailPage').then((m) => ({ default: m.ProjectDetailPage })),
+);
+const ProjectSettingsPage = lazy(() =>
+  import('@/features/projects/ProjectSettingsPage').then((m) => ({ default: m.ProjectSettingsPage })),
+);
+const BOQListPage = lazy(() => import('@/features/boq/BOQListPage').then((m) => ({ default: m.BOQListPage })));
+const CreateBOQPage = lazy(() => import('@/features/boq/CreateBOQPage').then((m) => ({ default: m.CreateBOQPage })));
+const TemplatesPage = lazy(() => import('@/features/boq/TemplatesPage').then((m) => ({ default: m.TemplatesPage })));
+const NlRuleBuilderPanel = lazy(() =>
+  import('@/features/compliance').then((m) => ({ default: m.NlRuleBuilderPanel })),
+);
+const ModuleVideosSlot = lazy(() =>
+  import('@/features/videos/ModuleVideosSlot').then((m) => ({ default: m.ModuleVideosSlot })),
+);
 
 // Lazy-loaded heavy pages — code-split into separate chunks
 const BOQEditorPage = lazy(() =>
@@ -834,11 +857,11 @@ function AppShell() {
             {/* "Videos for this step": renders nothing on a screen with no
                 videos, and a failure in it must never take the page down. */}
             <ErrorBoundary key={`videos:${location.pathname}`} fallback={null}>
-              <ModuleVideosSlot />
+              {SHOW_UPSTREAM_EXTRAS && <ModuleVideosSlot />}
             </ErrorBoundary>
             <ErrorBoundary key={location.pathname}>
               <PageTitleContext.Provider value={setTitle}>
-                <Outlet />
+                {isBlockedInThaiEdition(location.pathname) ? <NotInThaiEdition /> : <Outlet />}
               </PageTitleContext.Provider>
             </ErrorBoundary>
           </Suspense>
@@ -1136,7 +1159,7 @@ export default function App() {
           `OnboardingTour` component still ships for per-feature
           custom tours (e.g. Pipelines page), but is no longer mounted
           globally. */}
-      {isAuthenticated && <ProductTour />}
+      {SHOW_UPSTREAM_EXTRAS && isAuthenticated && <ProductTour />}
       <Routes>
         {/* Public share-link landing page — no auth required, no app shell */}
         <Route path="/share/:token" element={<SharePage />} />
@@ -1224,7 +1247,7 @@ export default function App() {
           element={
             isAuthenticated
               ? <Navigate to="/dashboard" replace />
-              : <P title="Dashboard"><DashboardPage /></P>
+              : <Suspense fallback={<LoadingScreen />}><P title="Dashboard"><DashboardPage /></P></Suspense>
           }
         />
 
@@ -1660,7 +1683,8 @@ export default function App() {
         {/* `/dashboard` renders DashboardPage directly. The earlier alias
             redirected to `/`, but BUG-215 made `/` redirect authed users to
             `/projects`, leaving DashboardPage unreachable. */}
-        <Route path="/dashboard" element={<P title="Dashboard"><DashboardPage /></P>} />
+        <Route path="/dashboard" element={<P title="Dashboard">{SHOW_UPSTREAM_EXTRAS ? <DashboardPage /> : <ThaiOverviewPage />}</P>} />
+        <Route path="/dashboard/classic" element={<P title="Dashboard"><DashboardPage /></P>} />
         <Route path="/change-orders" element={<Navigate to="/changeorders" replace />} />
         <Route path="/punch-list" element={<Navigate to="/punchlist" replace />} />
         {/* Variations (FIDIC/JCT VOs) — distinct from generic change-orders;

@@ -5,7 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
 import { ArrowLeft, Mail, CheckCircle2, Globe, ChevronDown } from 'lucide-react';
 import { Button, Input, Logo, CountryFlag } from '@/shared/ui';
-import { SUPPORTED_LANGUAGES, getLanguageByCode } from '@/app/i18n';
+import { UI_LANGUAGES, getLanguageByCode } from '@/app/i18n';
 import { AuthBackground } from './AuthBackground';
 
 export function ForgotPasswordPage() {
@@ -73,7 +73,7 @@ export function ForgotPasswordPage() {
         </button>
         {langOpen && (
           <div className="absolute right-0 mt-1 w-44 max-h-72 overflow-y-auto rounded-xl border border-border-light bg-surface-elevated shadow-xl py-0.5 animate-stagger-in">
-            {SUPPORTED_LANGUAGES.map((lang) => {
+            {UI_LANGUAGES.map((lang) => {
               const isActive = i18n.language === lang.code;
               return (
                 <button

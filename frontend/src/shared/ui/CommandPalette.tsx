@@ -40,6 +40,7 @@ import { projectsApi, type Project } from '@/features/projects/api';
 import { boqApi, type BOQ } from '@/features/boq/api';
 import { apiGet } from '@/shared/lib/api';
 import { useModuleStore } from '@/stores/useModuleStore';
+import { isBlockedInThaiEdition } from '@/app/thai/editionScope';
 
 /* ── Types ─────────────────────────────────────────────────────────────── */
 
@@ -312,7 +313,9 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
     const groups: { title: string; items: SearchResult[] }[] = [];
     // Drop the pages whose module is switched off. Their route is unmounted
     // with the module, so offering them here lands the reader on Not Found.
-    const pages = PAGE_RESULTS.filter((page) => !page.moduleKey || isModuleEnabled(page.moduleKey));
+    const pages = PAGE_RESULTS.filter(
+      (page) => (!page.moduleKey || isModuleEnabled(page.moduleKey)) && !isBlockedInThaiEdition(page.path),
+    );
 
     if (!lowerQuery) {
       // Show recent items when query is empty

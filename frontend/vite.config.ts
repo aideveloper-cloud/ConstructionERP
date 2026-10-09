@@ -13,6 +13,22 @@ import path from 'path';
 import { cpSync, existsSync, readFileSync, readdirSync, createReadStream, statSync } from 'fs';
 import type { Plugin } from 'vite';
 import { STATIC_ASSETS_CACHE, isStaticAssetRequest } from './src/pwa/staticAssetRoute';
+import { pruneLocaleSource } from './src/app/thai/localePrune';
+
+// ฉบับไทย: ตัดคำแปลของโมดูลที่ไม่ได้เปิดออกจาก th/en (ดู src/app/thai/localePrune.ts).
+// ทั้งสองไฟล์อยู่ใน bundle แรกที่ทุกหน้าต้องโหลด ปิดได้ด้วย VITE_ALL_MODULES=true
+function thaiLocalePrune(): Plugin {
+  return {
+    name: 'thai-locale-prune',
+    enforce: 'pre',
+    transform(code, id) {
+      if (process.env.VITE_ALL_MODULES === 'true') return null;
+      if (!/[\\/]src[\\/]app[\\/]locales[\\/](th|en)\.ts$/.test(id.split('?')[0] ?? '')) return null;
+      const { code: out } = pruneLocaleSource(code);
+      return { code: out, map: null };
+    },
+  };
+}
 
 const cesiumSource = path.resolve(__dirname, 'node_modules/cesium/Build/Cesium');
 const cesiumDirs = ['Workers', 'ThirdParty', 'Assets', 'Widgets'] as const;
@@ -185,6 +201,7 @@ export default defineConfig({
     __APP_VERSION__: JSON.stringify(pkg.version),
   },
   plugins: [
+    thaiLocalePrune(),
     react(),
     process.env.ANALYZE === '1' && visualizer({
       filename: 'stats.html',
@@ -427,6 +444,12 @@ export default defineConfig({
           process.env.E2E_BACKEND ??
           'http://127.0.0.1:8000',
         changeOrigin: true,
+        // Send X-Forwarded-Host/Proto so the backend can tell the browser's
+        // real origin (localhost:5173). The geo-hub basemap style rewrites its
+        // tile/sprite URLs to absolute ones from that origin; without these
+        // headers it named 127.0.0.1:8000, a cross-origin host with no CORS,
+        // and the project map stayed blank in dev.
+        xfwd: true,
         // 30 minutes. Catalogue v3 installs (`/costs/catalogues-v3/{id}/install`)
         // download a 200–500 MB snapshot from Hugging Face, stream it
         // multipart into Qdrant, then poll Qdrant for collection

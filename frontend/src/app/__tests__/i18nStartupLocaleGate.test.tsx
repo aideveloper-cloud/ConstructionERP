@@ -42,15 +42,16 @@ const FIXTURES = vi.hoisted(() => ({
     'probe.action': 'Export',
     'probe.rows': 'Rows',
   } as Record<string, string>,
-  DE: {
-    'probe.title': 'Leistungsverzeichnis',
-    'probe.action': 'Exportieren',
-    'probe.rows': 'Zeilen',
+  TH: {
+    'probe.title': 'บัญชีแสดงปริมาณงาน',
+    'probe.action': 'ส่งออก',
+    'probe.rows': 'แถว',
   } as Record<string, string>,
 }));
 
 vi.mock('../locales/en', () => ({ default: { translation: FIXTURES.EN } }));
-vi.mock('../locales/de.ts', () => ({ default: { translation: FIXTURES.DE } }));
+// ฉบับไทย: ภาษาไทย bundle มาพร้อม English (ไม่ใช่ lazy chunk)
+vi.mock('../locales/th', () => ({ default: { translation: FIXTURES.TH } }));
 vi.mock('@/modules/_registry', () => ({ getModuleTranslations: () => ({}) }));
 
 type I18nModule = typeof import('../i18n');
@@ -59,24 +60,26 @@ let i18nMod: I18nModule;
 beforeAll(async () => {
   // The saved language a returning user boots with. It must be in place
   // before the module under test is imported - the module reads it at
-  // evaluation time, exactly as a real page load does.
+  // evaluation time, exactly as a real page load does. ฉบับไทยไม่เสนอภาษาเยอรมัน
+  // จึงต้องเริ่มเป็นไทยแทน
   window.localStorage.setItem('i18nextLng', 'de');
   i18nMod = await import('../i18n');
 });
 
-describe('startup language gate - stored non-English locale', () => {
+describe('startup language gate - Thai edition boots in bundled Thai', () => {
   it('initializes synchronously, so the gate is the only thing left to wait for', () => {
     expect(i18nMod.default.isInitialized).toBe(true);
-    expect(i18nMod.default.language).toBe('de');
+    expect(i18nMod.default.language).toBe('th');
   });
 
   it('exposes a pending gate instead of a fire-and-forget load', () => {
     expect(i18nMod.initialLocaleReady).toBeInstanceOf(Promise);
   });
 
-  it('resolves only once the locale bundle is merged into the store', async () => {
+  it('has the Thai bundle in the store from the start', async () => {
+    expect(i18nMod.default.hasResourceBundle('th', 'translation')).toBe(true);
     await i18nMod.initialLocaleReady;
-    expect(i18nMod.default.hasResourceBundle('de', 'translation')).toBe(true);
+    expect(i18nMod.default.hasResourceBundle('th', 'translation')).toBe(true);
   });
 
   it('a first render issued after the gate carries no English fallback strings', async () => {
@@ -108,7 +111,7 @@ describe('startup language gate - stored non-English locale', () => {
       expect(text, `key ${k} rendered the English fallback on first paint`).not.toBe(
         FIXTURES.EN[k],
       );
-      expect(text).toBe(FIXTURES.DE[k]);
+      expect(text).toBe(FIXTURES.TH[k]);
     }
   });
 });

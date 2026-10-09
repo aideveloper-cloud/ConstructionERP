@@ -89,7 +89,13 @@ export const RELIEF_MAX_ZOOM = 6;
  * the map would still render, so the leak would be invisible.
  */
 export function basemapStyleUrl(name: BasemapStyleName): string {
-  return `/api/v1/geo-hub/basemap-style/${name}.json`;
+  // The backend writes absolute tile/sprite URLs for the origin that asked,
+  // and the response is cached for a day. Without the origin in the URL, a
+  // copy fetched under one origin (the dev proxy once named 127.0.0.1:8000)
+  // was reused for a day and every tile was blocked cross-origin: a beige map
+  // with a pin and no streets. ``v`` retires those stale copies.
+  const origin = typeof window !== 'undefined' ? window.location.origin : '';
+  return `/api/v1/geo-hub/basemap-style/${name}.json?v=2&o=${encodeURIComponent(origin)}`;
 }
 
 /**

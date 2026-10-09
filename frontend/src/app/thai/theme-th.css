@@ -1,0 +1,97 @@
+/* ConstructionERP ฉบับไทย — ธีมตามแบบ constructionerp_production_ui.html
+   โหลดต่อจาก index.css เพื่อ override token เดิม โดยไม่แก้ไฟล์ต้นฉบับ
+   (ธีมมืดยังใช้ token ของ .dark ใน index.css ตามเดิม) */
+
+:root {
+  /* สีหลัก */
+  --oe-blue: #3278f6;
+  --oe-blue-hover: #2f6fe3;
+  --oe-blue-active: #2a66d4;
+  --oe-blue-dark: #2856a6;
+  --oe-blue-text: #2856a6;
+  --oe-blue-subtle: #eaf2ff;
+  --oe-blue-ch: 50 120 246;
+
+  /* พื้นผิว */
+  --oe-bg-secondary: #f5f7fb;
+  --oe-bg-secondary-ch: 245 247 251;
+  --oe-bg-tertiary: #fbfcfe;
+  --oe-bg-tertiary-ch: 251 252 254;
+
+  /* เส้นขอบ / ตัวอักษร */
+  --oe-border: #d9e1ec;
+  --oe-border-light: #e5ebf3;
+  --oe-text-primary: #17263e;
+  --oe-text-secondary: #40516a;
+  --oe-text-tertiary: #607087;
+  --oe-text-quaternary: #718096;
+
+  /* สถานะ */
+  --oe-success: #118259;
+  --oe-success-bg: #e3f7ee;
+  --oe-warning: #9b6a12;
+  --oe-warning-bg: #fff4dc;
+  --oe-error: #bd4242;
+  --oe-error-bg: #ffeded;
+
+  /* ฟอนต์: Inter สำหรับตัวเลข/อังกฤษ + Noto Sans Thai สำหรับภาษาไทย (bundle ในแอป ไม่โหลดจากเน็ต) */
+  --oe-font-sans: 'Inter', 'Noto Sans Thai', 'Leelawadee UI', system-ui, -apple-system, 'Segoe UI', sans-serif;
+
+  /* โครงหน้าจอ */
+  --oe-sidebar-width: 250px;
+  --oe-header-height: 64px;
+
+  /* เมนูซ้ายสีกรมท่า */
+  --th-side-top: #101d33;
+  --th-side-bottom: #0e192b;
+  --th-side-ink: #d7e1f1;
+  --th-side-muted: #aebdd1;
+  --th-side-dim: #6f83a2;
+  --th-side-active: #2f72e8;
+  --th-card-shadow: 0 4px 18px #15294b08;
+}
+
+body {
+  font-family: var(--oe-font-sans);
+}
+
+/* ตัวเลขในตารางเรียงหลักตรงกัน */
+table td,
+table th {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ===== เมนูซ้าย ===== */
+.th-side {
+  background: linear-gradient(180deg, var(--th-side-top), var(--th-side-bottom));
+  color: var(--th-side-ink);
+}
+.th-side-link {
+  color: var(--th-side-muted);
+  transition: background-color 0.15s, color 0.15s;
+}
+.th-side-link:hover {
+  background: #ffffff0c;
+  color: #fff;
+}
+.th-side-link[aria-current='page'] {
+  background: var(--th-side-active);
+  color: #fff;
+  box-shadow: 0 5px 15px #1a5bc244;
+}
+.th-side-group {
+  color: var(--th-side-dim);
+}
+.th-side-card {
+  background: #ffffff0b;
+  border: 1px solid #ffffff12;
+}
+
+/* ===== แถบบน ===== */
+.th-header {
+  background: #ffffff;
+  border-bottom: 1px solid var(--oe-border-light);
+}
+.dark .th-header {
+  background: rgb(var(--oe-bg-ch));
+}

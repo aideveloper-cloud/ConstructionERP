@@ -97,6 +97,9 @@ export const SUPPORTED_LANGUAGES = [
   { code: 'uz', name: 'Oʻzbekcha', english: 'Uzbek', flag: '🇺🇿', country: 'uz' },
 ];
 
+/** ภาษาที่แสดงในตัวเลือกภาษาของฉบับไทย (ไทย / English) */
+export const UI_LANGUAGES = SUPPORTED_LANGUAGES.filter((l) => UI_LANGUAGE_CODES.includes(l.code));
+
 export function getLanguageByCode(code: string): (typeof SUPPORTED_LANGUAGES)[number] {
   return SUPPORTED_LANGUAGES.find((l) => l.code === code) ?? SUPPORTED_LANGUAGES[0]!;
 }
@@ -287,13 +290,17 @@ export const useTranslation = useI18nTranslation;
 // locale lives in its own per-language chunk and is fetched on demand —
 // see ``loadLocaleResource`` below.
 import enResource from './locales/en';
+// ฉบับไทย: ภาษาไทยเป็นภาษาหลัก จึง bundle มาพร้อม English เพื่อไม่ให้หน้าแรกกะพริบเป็นอังกฤษ
+import thResource from './locales/th';
+import { THAI_UI_STRINGS } from './thai/locale';
+import { UI_LANGUAGE_CODES } from './thai/flags';
 
 // Module translations applied at runtime
 const moduleTranslations: Record<string, Record<string, Record<string, string>>> = {};
 
 // Track which non-English locales have been hydrated so we don't fetch
 // the same chunk twice (e.g. on every ``languageChanged`` round trip).
-const loadedLocales = new Set<string>(['en']);
+const loadedLocales = new Set<string>(['en', 'th']);
 
 // Keep unfinished Mongolian source available to translation tests without
 // shipping a chunk for a language the runtime deliberately does not offer.
@@ -465,11 +472,12 @@ export function applyModuleTranslations(
  * guarded so the function returns ``'en'`` when called outside a browser.
  */
 export function resolveInitialLanguage(): string {
-  const supported = SUPPORTED_LANGUAGES.map((l) => l.code);
+  // ฉบับไทย: เลือกได้เฉพาะไทย/อังกฤษ และเริ่มต้นเป็นไทยเสมอ (ไม่เดาจากภาษาเบราว์เซอร์)
+  const supported = SUPPORTED_LANGUAGES.map((l) => l.code).filter((c) => UI_LANGUAGE_CODES.includes(c));
   const isValid = (code: string | null | undefined): code is string =>
     !!code && supported.includes(code);
 
-  if (typeof window === 'undefined') return 'en';
+  if (typeof window === 'undefined') return 'th';
 
   // 1. URL ?lang= param wins — useful for shareable localised links.
   try {
@@ -501,11 +509,11 @@ export function resolveInitialLanguage(): string {
   //    Portugal's Portuguese and every Mexican one in Spain's Spanish, with
   //    the regional file sitting right there unused. "de-CH" still resolves
   //    to "de", because we ship no de-CH.
-  const browserMatch = matchSupportedLanguage(navigator.language);
-  if (browserMatch) return browserMatch;
+  //    ฉบับไทยไม่ใช้ขั้นนี้: ผู้ใช้ไทยจำนวนมากตั้งเบราว์เซอร์เป็นภาษาอังกฤษ
+  //    แต่ต้องการใช้ระบบเป็นภาษาไทย จึงตกไปที่ค่าเริ่มต้นไทยด้านล่าง
 
-  // 4. Final fallback.
-  return 'en';
+  // 4. Final fallback: ไทย
+  return 'th';
 }
 
 /**
@@ -560,7 +568,10 @@ i18n
     // lazy-loaded by ``loadLocaleResource`` below. ``fallbackLng: 'en'``
     // means missing keys (e.g. while the locale chunk is still in
     // flight) render in English instead of as raw key strings.
-    resources: { en: enResource },
+    resources: {
+      en: { translation: { ...enResource.translation, ...THAI_UI_STRINGS.en } },
+      th: { translation: { ...thResource.translation, ...THAI_UI_STRINGS.th } },
+    },
     lng: initialLanguage,
     // The regional variants fall back to their own language before English, so
     // a key not localised for Chile shows Spanish rather than English. That is

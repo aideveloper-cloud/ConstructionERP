@@ -77,6 +77,13 @@ import { projectsApi, type Project } from './api';
 import { PhotosTab } from './PhotosTab';
 import { CompliancePage } from '@/features/compliance-docs/CompliancePage';
 import { TeamStrip } from './components/TeamStrip';
+import { ProjectLocationCard } from './components/ProjectLocationCard';
+import { SHOW_UPSTREAM_EXTRAS } from '@/app/thai/flags';
+import { ALL_MODULES } from '@/app/thai/editionScope';
+
+/** ฉบับไทย: จัดหน้าโครงการใหม่ (ข้อมูล + ที่ตั้งด้านข้าง) และซ่อนส่วนของโมดูลที่ไม่ได้เปิด */
+const THAI_LAYOUT = !SHOW_UPSTREAM_EXTRAS;
+const THAI_SCOPE = !ALL_MODULES;
 import { useProjectContextStore } from '@/stores/useProjectContextStore';
 import { useRecentStore } from '@/stores/useRecentStore';
 import { useAuthStore } from '@/stores/useAuthStore';
@@ -903,6 +910,11 @@ function WidgetSection({
   // Drop sections whose every child rendered ``false`` (all widgets hidden).
   const visible = React.Children.toArray(children).filter(Boolean);
   if (visible.length === 0) return null;
+  // ฉบับไทย: บางการ์ดถูกซ่อน (โมดูลที่ไม่เปิด) จึงปรับจำนวนคอลัมน์ตามการ์ดที่เหลือ
+  // ไม่ให้แถวมีช่องว่าง
+  if (THAI_LAYOUT && visible.length < 3) {
+    className = visible.length === 1 ? 'grid-cols-1' : 'grid-cols-1 lg:grid-cols-2';
+  }
   return (
     <section className="mb-5">
       <div className="mb-2 flex items-center gap-2">
@@ -1414,6 +1426,76 @@ function ProjectStatusSelect({
   );
 }
 
+/** คำอธิบายโครงการแบบย่อ 3 บรรทัด กดอ่านเพิ่มเติมได้ (คำอธิบายจาก import มักยาวมาก) */
+function ClampedDescription({ text }: { text: string }) {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  const long = text.length > 220 || text.split('\n').length > 3;
+  return (
+    <div className="mt-2 max-w-3xl">
+      <p
+        className={clsx(
+          'whitespace-pre-line text-sm leading-relaxed text-content-secondary',
+          !open && long && 'line-clamp-3',
+        )}
+      >
+        {text}
+      </p>
+      {long && (
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          className="mt-1 text-xs font-medium text-oe-blue hover:underline"
+        >
+          {open ? t('th_ui.project.show_less') : t('th_ui.project.show_more')}
+        </button>
+      )}
+    </div>
+  );
+}
+
+/** ข้อมูลหลักของโครงการเป็นตาราง label/ค่า แทนแถว badge */
+function ProjectFacts({
+  project,
+  currency,
+  boqTotal,
+}: {
+  project: Project;
+  currency: string | undefined;
+  boqTotal: number | null;
+}) {
+  const { t } = useTranslation();
+  const budget = project.budget_estimate ? parseFloat(project.budget_estimate) : NaN;
+  const facts: { label: string; value: string }[] = [
+    {
+      label: t('th_ui.project.contract_value'),
+      value: boqTotal === null ? '—' : formatCurrency(boqTotal, currency),
+    },
+    ...(Number.isFinite(budget)
+      ? [{ label: t('th_ui.project.budget'), value: formatCurrency(budget, currency) }]
+      : []),
+    {
+      label: t('th_ui.project.standard'),
+      value: standardLabels[project.classification_standard] ?? project.classification_standard ?? '—',
+    },
+    { label: t('th_ui.project.currency'), value: currency ?? '—' },
+    { label: t('th_ui.project.region'), value: project.region || '—' },
+    { label: t('th_ui.project.created'), value: formatDate(project.created_at, i18n.language) },
+  ];
+  return (
+    <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 border-t border-border-light pt-4 sm:grid-cols-3">
+      {facts.map((f) => (
+        <div key={f.label} className="min-w-0">
+          <dt className="text-2xs font-medium text-content-tertiary">{f.label}</dt>
+          <dd className="mt-0.5 truncate text-sm font-semibold text-content-primary tabular-nums" title={f.value}>
+            {f.value}
+          </dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
 export function ProjectDetailPage() {
   const { t } = useTranslation();
   const { projectId } = useParams<{ projectId: string }>();
@@ -1822,6 +1904,7 @@ export function ProjectDetailPage() {
         </Button>
       </div>
 
+      {!THAI_LAYOUT && (
       <DismissibleInfo
         storageKey="project-detail"
         title={t('projects.detail_intro_title', {
@@ -1843,6 +1926,7 @@ export function ProjectDetailPage() {
             'This is the project hub: its BOQs, 4D schedule, 5D budget, tendering and key stats sit on one page so you do not hunt through the sidebar to find where the work lives. Jump straight into a cost work-product or open Project Settings to change region, currency or active modules. Edits to BOQs and costs roll up into the totals shown across Analytics and Reporting.',
         })}
       </DismissibleInfo>
+      )}
 
       {/* ─── Customize panel (collapsible) — mirrors Dashboard pattern ─── */}
       {customizing && (
@@ -1867,18 +1951,26 @@ export function ProjectDetailPage() {
           column below `lg`. `items-stretch` + `h-full` on both children
           keeps their outer borders aligned; the inner Health content
           vertically centers so the ring doesn't hug the top. */}
-      {(!isWidgetHidden('project-info') || !isWidgetHidden('health-bar')) && (
+      {(!isWidgetHidden('project-info') || !isWidgetHidden('health-bar') ||
+        (THAI_LAYOUT && !isWidgetHidden('location'))) && (
       <div
         className={clsx(
           'grid gap-3 items-stretch',
-          !isWidgetHidden('project-info') && !isWidgetHidden('health-bar')
-            ? 'grid-cols-1 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]'
-            : 'grid-cols-1',
+          THAI_LAYOUT
+            ? !isWidgetHidden('location')
+              ? 'grid-cols-1 lg:grid-cols-[minmax(0,1.75fr)_minmax(0,1fr)]'
+              : 'grid-cols-1'
+            : !isWidgetHidden('project-info') && !isWidgetHidden('health-bar')
+              ? 'grid-cols-1 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]'
+              : 'grid-cols-1',
         )}
       >
+      {/* ฉบับไทย: ข้อมูลโครงการ + สุขภาพโครงการซ้อนกันในคอลัมน์ซ้าย ที่ตั้งอยู่ขวา.
+          ฉบับเดิม: ``contents`` ทำให้ wrapper หายไปและ grid เดิมทำงานเหมือนเดิม */}
+      <div className={THAI_LAYOUT ? 'flex min-w-0 flex-col gap-3' : 'contents'}>
       {!isWidgetHidden('project-info') && (
       /* ── Project Info Card ───────────────────────────────────────────── */
-      <Card padding="md" className="h-full">
+      <Card padding="md" className={THAI_LAYOUT ? 'flex-1' : 'h-full'}>
         <div className="flex items-start justify-between">
           <div className="flex-1 min-w-0">
             {isEditing ? (
@@ -1996,11 +2088,20 @@ export function ProjectDetailPage() {
                     {t('project.settings.link', { defaultValue: 'Settings' })}
                   </button>
                 </div>
-                {project.description && (
+                {project.description && (THAI_LAYOUT ? (
+                  <ClampedDescription text={project.description} />
+                ) : (
                   <p className="mt-2 text-sm text-content-secondary max-w-2xl leading-relaxed">
                     {project.description}
                   </p>
-                )}
+                ))}
+                {THAI_LAYOUT ? (
+                  <ProjectFacts
+                    project={project}
+                    currency={currency}
+                    boqTotal={stats.unavailable ? null : stats.totalBudget}
+                  />
+                ) : (
                 <div className="mt-4 flex flex-wrap items-center gap-2">
                   <Badge variant="blue" size="sm">
                     {standardLabels[project.classification_standard] ??
@@ -2016,6 +2117,7 @@ export function ProjectDetailPage() {
                     {t('projects.created', { date: formatDate(project.created_at, i18n.language) })}
                   </span>
                 </div>
+                )}
               </>
             )}
           </div>
@@ -2025,12 +2127,16 @@ export function ProjectDetailPage() {
 
       {!isWidgetHidden('health-bar') && (
         /* Health block moves into the top grid (right column). */
-        <ProjectHealthBar projectId={projectId!} boqs={boqs} boqDetails={boqDetails} />
+        <div className={THAI_LAYOUT ? 'shrink-0' : 'contents'}>
+          <ProjectHealthBar projectId={projectId!} boqs={boqs} boqDetails={boqDetails} />
+        </div>
       )}
+      </div>
+      {THAI_LAYOUT && !isWidgetHidden('location') && <ProjectLocationCard project={project} />}
       </div>
       )}
 
-      {!isWidgetHidden('location') && (
+      {!THAI_LAYOUT && !isWidgetHidden('location') && (
         /* ── Location map + weather (toggleable in widget settings) ───── */
         <ProjectLocationPanel project={project} />
       )}
@@ -2087,7 +2193,7 @@ export function ProjectDetailPage() {
           {!isWidgetHidden('change-orders') && (
             <ChangeOrdersPulseWidget projectId={projectId!} currency={currency ?? ''} />
           )}
-          {!isWidgetHidden('variations') && (
+          {!THAI_SCOPE && !isWidgetHidden('variations') && (
             <VariationsWidget projectId={projectId!} currency={currency ?? ''} />
           )}
         </WidgetSection>
@@ -2117,10 +2223,10 @@ export function ProjectDetailPage() {
           })}
           className="grid-cols-1 lg:grid-cols-2"
         >
-          {!isWidgetHidden('quality-ncr') && (
+          {!THAI_SCOPE && !isWidgetHidden('quality-ncr') && (
             <QualityNCRWidget projectId={projectId!} />
           )}
-          {!isWidgetHidden('compliance-summary') && (
+          {!THAI_SCOPE && !isWidgetHidden('compliance-summary') && (
             <ComplianceSummaryWidget projectId={projectId!} />
           )}
         </WidgetSection>
@@ -2155,7 +2261,7 @@ export function ProjectDetailPage() {
           {!isWidgetHidden('recent-files') && (
             <RecentFilesWidget projectId={projectId!} />
           )}
-          {!isWidgetHidden('ai-insights') && (
+          {!THAI_SCOPE && !isWidgetHidden('ai-insights') && (
             <AIInsightsWidget projectId={projectId!} />
           )}
           {!isWidgetHidden('activity-feed') && (
@@ -2206,7 +2312,17 @@ export function ProjectDetailPage() {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {(() => {
           const areaMatch = project.description?.match(/(\d[\d.,]*)\s*m[²2]/i);
-          const area = areaMatch ? parseFloat((areaMatch[1] ?? '0').replace(',', '')) : null;
+          // "2.050 m2" (German) and "2,050 m2" (English) are both two thousand
+          // and fifty: a separator followed by exactly three digits is a
+          // thousands mark, anything else is the decimal point. Parsing the
+          // German form as 2.05 put a ten-million cost per m2 on the card.
+          const area = areaMatch
+            ? parseFloat(
+                (areaMatch[1] ?? '0')
+                  .replace(/[.,](?=\d{3}(?!\d))/g, '')
+                  .replace(',', '.'),
+              )
+            : null;
           const costPerM2 = area && stats.totalBudget > 0 ? stats.totalBudget / area : null;
           const costPerM2Str = costPerM2
             ? `${formatCurrency(costPerM2, currency)}/m\u00b2`
@@ -2275,7 +2391,7 @@ export function ProjectDetailPage() {
           { key: 'tendering' as ProjectTab, label: t('projects.tendering'), icon: <Gavel size={15} /> },
           { key: 'photos' as ProjectTab, label: t('projects.photos.tab_label', { defaultValue: 'Photos' }), icon: <ImageIcon size={15} /> },
           { key: 'compliance' as ProjectTab, label: t('compliance.tab_label', { defaultValue: 'Compliance' }), icon: <ShieldCheck size={15} /> },
-        ]).map((tab) => (
+        ]).filter((tab) => !THAI_SCOPE || (tab.key !== 'tendering' && tab.key !== 'compliance')).map((tab) => (
           <button
             key={tab.key}
             onClick={() => setActiveTab(tab.key)}
@@ -2404,8 +2520,8 @@ export function ProjectDetailPage() {
                   role="button"
                   tabIndex={0}
                   aria-label={t('projects.dash_quality', { defaultValue: 'Quality Score' })}
-                  onClick={() => navigate('/validation')}
-                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); navigate('/validation'); } }}
+                  onClick={() => navigate(THAI_SCOPE ? '/inspections' : '/validation')}
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); navigate(THAI_SCOPE ? '/inspections' : '/validation'); } }}
                 >
                   <div className="flex items-start justify-between">
                     <div>
@@ -2823,6 +2939,7 @@ export function ProjectDetailPage() {
                     >
                       {t('projects.dash_new_task', { defaultValue: 'New Task' })}
                     </Button>
+                    {!THAI_SCOPE && (
                     <Button
                       variant="secondary"
                       size="md"
@@ -2832,6 +2949,7 @@ export function ProjectDetailPage() {
                     >
                       {t('projects.dash_run_validation', { defaultValue: 'Run Validation' })}
                     </Button>
+                    )}
                     <Button
                       variant="secondary"
                       size="md"

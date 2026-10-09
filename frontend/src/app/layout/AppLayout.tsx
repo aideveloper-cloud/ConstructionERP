@@ -30,6 +30,8 @@ import { usePartnerPackLocale } from '@/shared/hooks/usePartnerPackLocale';
 import { useBrandingStore } from '@/stores/useBrandingStore';
 import { useReviewPromptStore } from '@/stores/useReviewPromptStore';
 import { useGlobalPresenceSocket } from '@/features/global_presence';
+import { ThaiSidebar } from '@/app/thai/ThaiSidebar';
+import { PRODUCT_NAME, SHOW_UPSTREAM_EXTRAS, USE_LEGACY_NAV } from '@/app/thai/flags';
 
 interface AppLayoutProps {
   title?: string;
@@ -78,7 +80,7 @@ export function AppLayout({ title, children }: AppLayoutProps) {
     // page heading uses, so the tab also follows the active language.
     const key = resolvePageTitleKey(title);
     const translated = title ? (key ? t(key, { defaultValue: title }) : title) : null;
-    const suffix = brandName ?? 'OpenConstructionERP';
+    const suffix = brandName ?? PRODUCT_NAME;
     document.title = translated ? `${translated} | ${suffix}` : suffix;
     // i18n.language in deps so the tab re-translates on a language switch.
   }, [title, t, i18n.language, brandName]);
@@ -127,7 +129,11 @@ export function AppLayout({ title, children }: AppLayoutProps) {
           root MUST NOT also set `bg-surface-secondary` — otherwise it
           paints above the `fixed -z-10` backdrop in the root stacking
           context and hides the tinted spotlight. */}
-      <DashboardBackdrop variant={backdropVariant} />
+      {SHOW_UPSTREAM_EXTRAS ? (
+        <DashboardBackdrop variant={backdropVariant} />
+      ) : (
+        <div className="fixed inset-0 -z-10 bg-surface-secondary" aria-hidden />
+      )}
       <DemoBanner />
       <GlobalProgress />
 
@@ -153,7 +159,7 @@ export function AppLayout({ title, children }: AppLayoutProps) {
           sidebarOpen ? 'translate-x-0' : '-translate-x-full',
         )}
       >
-        <Sidebar onClose={closeSidebar} />
+        {USE_LEGACY_NAV ? <Sidebar onClose={closeSidebar} /> : <ThaiSidebar onClose={closeSidebar} />}
       </div>
 
       {/* Main area — offset from the sidebar side (left in LTR, right in RTL).
@@ -194,7 +200,7 @@ export function AppLayout({ title, children }: AppLayoutProps) {
       <GlobalCatalogueInstallIndicator />
 
       {/* Floating Recent button — bottom-right corner */}
-      <FloatingRecentButton />
+      {SHOW_UPSTREAM_EXTRAS && <FloatingRecentButton />}
 
       {/* AI assistant — the round button and the dock it opens (Alt+A
           toggles it too). The dock pushes the page aside on wide screens
@@ -202,8 +208,8 @@ export function AppLayout({ title, children }: AppLayoutProps) {
           stay out of /chat, which is the full-page version of the same
           assistant. Mounted at the layout level so the conversation
           survives navigation. */}
-      <FloatingChatButton />
-      <FloatingChatPanel />
+      {SHOW_UPSTREAM_EXTRAS && <FloatingChatButton />}
+      {SHOW_UPSTREAM_EXTRAS && <FloatingChatPanel />}
 
       {/* Occasional, non-blocking ask for a rating or review. Mounted here
           rather than at App.tsx top level on purpose: this shell is behind
@@ -213,7 +219,7 @@ export function AppLayout({ title, children }: AppLayoutProps) {
           once per signed-in session (App.tsx `AppShell`), and every piece of
           state the card needs lives in useReviewPromptStore anyway, not in
           the component. */}
-      <ReviewPromptCard />
+      {SHOW_UPSTREAM_EXTRAS && <ReviewPromptCard />}
 
       {/* Global onboarding tour (ProductTour) mounts once at App.tsx
           top level — moving it out of here was the fix for

@@ -16,13 +16,21 @@
 // shows, matching ModuleHelpButton; the button stays accessible via
 // aria-label.
 
-import { useState } from 'react';
+import { Suspense, lazy, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { GraduationCap } from 'lucide-react';
 import clsx from 'clsx';
 
 import { ModuleGuide, type ModuleGuideContent } from './ModuleGuide';
-import { ModuleCasesButton } from '@/features/cases/ModuleCasesButton';
+import { ALL_MODULES } from '@/app/thai/editionScope';
+
+// The cases pill imports the whole playbook library (~700 KB gzip). This button
+// sits on almost every page, so a static import put that library in the main
+// bundle. It now loads on demand, and not at all in the Thai edition, where the
+// cases pages are outside the enabled scope.
+const ModuleCasesButton = lazy(() =>
+  import('@/features/cases/ModuleCasesButton').then((m) => ({ default: m.ModuleCasesButton })),
+);
 
 export interface ModuleGuideButtonProps {
   /** The guide content to teach when the button is clicked. */
@@ -56,7 +64,11 @@ export function ModuleGuideButton({
           How-it-works button. It is route-derived and self-hides when no
           playbook touches the current module, so it costs nothing on pages
           without cases. */}
-      <ModuleCasesButton />
+      {ALL_MODULES && (
+        <Suspense fallback={null}>
+          <ModuleCasesButton />
+        </Suspense>
+      )}
       {/* The re-open control for a collapsed info block used to sit here, and
           now lives in the top bar beside the module name (founder 2026-08-07).
           It is not rendered in both places: two controls for one action drift

@@ -49,7 +49,7 @@ function applyTheme(resolved: 'light' | 'dark'): void {
 }
 
 export const useThemeStore = create<ThemeState>((set, get) => ({
-  theme: 'system',
+  theme: 'light',
   resolved: 'light',
 
   setTheme: (theme) => {
@@ -67,7 +67,7 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
 
   init: () => {
     const stored = localStorage.getItem(STORAGE_KEY) as ThemeMode | null;
-    const theme: ThemeMode = stored && ['light', 'dark', 'system'].includes(stored) ? stored : 'system';
+    const theme: ThemeMode = stored && ['light', 'dark', 'system'].includes(stored) ? stored : 'light';
     const resolved = resolveTheme(theme);
 
     // Apply immediately (no transition on initial load)

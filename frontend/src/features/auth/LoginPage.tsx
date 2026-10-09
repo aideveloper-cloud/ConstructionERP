@@ -28,7 +28,9 @@ import {
   type FirstRunStatus,
 } from './desktopBootstrap';
 import { safeNextPath } from './nextPath';
-import { SUPPORTED_LANGUAGES } from '@/app/i18n';
+import { SUPPORTED_LANGUAGES, UI_LANGUAGES } from '@/app/i18n';
+import { SHOW_UPSTREAM_EXTRAS } from '@/app/thai/flags';
+import { ThaiLoginPanel } from '@/app/thai/ThaiLoginPanel';
 import { useThemeStore } from '@/stores/useThemeStore';
 
 /* Segmented theme switch (Light / Dark / System) for the login page. */
@@ -485,7 +487,7 @@ export function LoginPage() {
         </button>
         {langOpen && (
           <div className="absolute right-0 mt-2 w-64 max-h-80 overflow-y-auto rounded-xl border border-border-light bg-surface-elevated shadow-xl py-1 animate-stagger-in">
-            {SUPPORTED_LANGUAGES.map((lang) => {
+            {UI_LANGUAGES.map((lang) => {
               const isActive = i18n.language === lang.code;
               const english = 'english' in lang ? (lang as { english?: string }).english : undefined;
               return (
@@ -512,7 +514,8 @@ export function LoginPage() {
       {/* ── Right column on lg+: marketing & benefits.
           Order swap (lg:order-2) puts the form on the left so it's the
           first thing the eye lands on - primary action priority. */}
-      <div className="hidden lg:flex relative z-10 lg:order-2 flex-col justify-center pl-14 xl:pl-20 pr-12 xl:pr-16 py-6 overflow-hidden">
+      {!SHOW_UPSTREAM_EXTRAS && <ThaiLoginPanel />}
+      <div className={`${SHOW_UPSTREAM_EXTRAS ? 'hidden lg:flex' : 'hidden'} relative z-10 lg:order-2 flex-col justify-center pl-14 xl:pl-20 pr-12 xl:pr-16 py-6 overflow-hidden`}>
         {/* Marketing column showcase - color lives here. Sky/cyan mesh +
             slow-drifting orbs + faint noise grain. The form column on the
             left stays a clean white field; this column carries the visual
@@ -1019,7 +1022,7 @@ export function LoginPage() {
               link). Premium two-line cards with a tinted icon badge:
               graphite for the source repo, oe-blue gradient for the
               community hub. Mirrors the page's login-glass-pro language. */}
-          <div className="mt-4 grid grid-cols-2 gap-3 animate-stagger-in" style={{ animationDelay: '520ms' }}>
+          <div className={`${SHOW_UPSTREAM_EXTRAS ? 'grid' : 'hidden'} mt-4 grid-cols-2 gap-3 animate-stagger-in`} style={{ animationDelay: '520ms' }}>
             <a
               href="https://github.com/datadrivenconstruction/OpenConstructionERP"
               target="_blank"
@@ -1067,7 +1070,7 @@ export function LoginPage() {
               />
             </a>
           </div>
-          <div className="lg:hidden mt-2 text-center text-2xs text-content-quaternary">
+          <div className={`${SHOW_UPSTREAM_EXTRAS ? 'lg:hidden' : 'hidden'} mt-2 text-center text-2xs text-content-quaternary`}>
             <div className="flex items-center justify-center gap-3">
               <a href="https://OpenConstructionERP.com" target="_blank" rel="noopener noreferrer" className="hover:text-content-secondary transition-colors">OpenConstructionERP.com</a>
               <span>·</span>

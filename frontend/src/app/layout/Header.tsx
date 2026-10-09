@@ -6,7 +6,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { Search, ChevronDown, ChevronRight, LogOut, User, Settings, Menu, MessageSquarePlus, FolderOpen, CheckCircle2, XCircle, Bug, BookOpen, Loader2, Upload, HelpCircle, GraduationCap, Mail, ExternalLink, Github, Sun, Moon, Monitor, Globe } from 'lucide-react';
 import clsx from 'clsx';
-import { SUPPORTED_LANGUAGES, getLanguageByCode, changeLanguage } from '../i18n';
+import { SUPPORTED_LANGUAGES, UI_LANGUAGES, getLanguageByCode, changeLanguage } from '../i18n';
 import { useAuthStore } from '@/stores/useAuthStore';
 import { useUploadQueueStore } from '@/stores/useUploadQueueStore';
 import { useProjectContextStore } from '@/stores/useProjectContextStore';
@@ -37,6 +37,8 @@ import { PresenceAvatarStack } from '@/features/global_presence';
 import { getRouteIcon } from './routeIcons';
 import { resolveStaleProject } from './staleProject';
 import { isModuleI18nKey } from '@/modules/_i18n';
+import { SHOW_UPSTREAM_EXTRAS } from '@/app/thai/flags';
+import { ApprovalsHeaderButton } from '@/app/thai/ApprovalsHeaderButton';
 
 /**
  * Map the English page titles passed from App.tsx routes to i18n keys.
@@ -64,7 +66,7 @@ export const TITLE_I18N_MAP: Record<string, string> = {
   'Projects': 'nav.projects',
   'New Project': 'projects.new_project',
   'Project': 'nav.projects',
-  'Project Settings': 'nav.settings',
+  'Project Settings': 'project.settings.title',
   // Legacy title of the module now called Documents. Kept so a page still
   // emitting the old title resolves to the current name rather than the old one.
   'Project Files': 'nav.documents',
@@ -371,7 +373,7 @@ export function Header({ title, onMenuClick }: HeaderProps) {
       className={clsx(
         'sticky z-30',
         'flex h-header items-center justify-between gap-3 px-4 sm:px-6 lg:px-8',
-        'bg-surface-primary/80 backdrop-blur-xl',
+        SHOW_UPSTREAM_EXTRAS ? 'bg-surface-primary/80 backdrop-blur-xl' : 'th-header',
       )}
       // In the desktop shell the browser-style toolbar (h-9 = 36px) sits above
       // the header, so the header pins just below it instead of under it. In the
@@ -465,8 +467,8 @@ export function Header({ title, onMenuClick }: HeaderProps) {
             project picker instead of truncating its name. The column keeps
             room for the globe, so the readout shrinks to its icon and tooltip
             rather than vanishing, which is the one thing it must not do. */}
-        <ActivePackChip className="min-w-0" />
-        {showCoBrand && <PartnerLogoBadge variant="nav" />}
+        {SHOW_UPSTREAM_EXTRAS && <ActivePackChip className="min-w-0" />}
+        {SHOW_UPSTREAM_EXTRAS && showCoBrand && <PartnerLogoBadge variant="nav" />}
       </div>
 
       {/* Right side — three zones separated by hairline dividers.
@@ -484,9 +486,13 @@ export function Header({ title, onMenuClick }: HeaderProps) {
             Names the lifecycle phase the current screen belongs to and
             opens the whole-platform journey map. First in the cluster so it
             reads as "where am I" ahead of the action buttons. */}
-        <ProjectJourneyButton />
-        <PresenceAvatarStack />
-        <div className="hidden sm:block h-4 w-px bg-border-light/70" aria-hidden />
+        {SHOW_UPSTREAM_EXTRAS && (
+          <>
+            <ProjectJourneyButton />
+            <PresenceAvatarStack />
+            <div className="hidden sm:block h-4 w-px bg-border-light/70" aria-hidden />
+          </>
+        )}
 
         {/* ── Zone 2 (Search) ──────────────────────────────────────── */}
         <button
@@ -536,12 +542,14 @@ export function Header({ title, onMenuClick }: HeaderProps) {
             report doesn't have to scan past the marketing CTAs. */}
         {/* Only while the Learn card is hidden from the menu: its way back,
             at every width. */}
-        <LearnTopBarButton />
+        {/* ฉบับไทย: ปุ่มอนุมัติพร้อมจำนวนเอกสารรออนุมัติ */}
+        {!SHOW_UPSTREAM_EXTRAS && <ApprovalsHeaderButton />}
+        {SHOW_UPSTREAM_EXTRAS && <LearnTopBarButton />}
         {/* Background services: what the platform keeps loaded, at every
             width, because it is the way back to a feature that stopped. */}
-        <ProcessesButton />
+        {SHOW_UPSTREAM_EXTRAS && <ProcessesButton />}
         <NotificationBell />
-        <HeaderNewsButton />
+        {SHOW_UPSTREAM_EXTRAS && <HeaderNewsButton />}
         {/* Building a module is something you do from wherever you noticed the
             platform was missing one, so it lives here rather than in the
             sidebar. Renders nothing for anyone who may not install one.
@@ -549,11 +557,15 @@ export function Header({ title, onMenuClick }: HeaderProps) {
         {/* Shown from 2xl only: at 125% and 150% text size a 1280-1440px bar
             had no room for these three next to the project picker, and the
             right cluster ran off screen. */}
-        <div className="hidden 2xl:block"><ModuleBuilderButton /></div>
-        <div className="hidden 2xl:block"><SupportUsButton /></div>
-        <div className="hidden 2xl:block"><SubscribeButton /></div>
-        <BugReportMenu />
-        <HelpMenu />
+        {SHOW_UPSTREAM_EXTRAS && (
+          <>
+            <div className="hidden 2xl:block"><ModuleBuilderButton /></div>
+            <div className="hidden 2xl:block"><SupportUsButton /></div>
+            <div className="hidden 2xl:block"><SubscribeButton /></div>
+            <BugReportMenu />
+            <HelpMenu />
+          </>
+        )}
 
         {/* Hairline divider between Zone 3 and Zone 4. */}
         <div className="hidden sm:block h-4 w-px bg-border-light/70" aria-hidden />
@@ -1244,7 +1256,7 @@ function LanguageSwitcher({
 
       {open && (
         <div role="menu" className="absolute right-0 top-full mt-1.5 w-48 max-h-72 overflow-y-auto rounded-xl border border-border-light bg-surface-elevated shadow-lg animate-scale-in py-1">
-          {SUPPORTED_LANGUAGES.map((lang) => (
+          {UI_LANGUAGES.map((lang) => (
             <button
               key={lang.code}
               role="menuitem"

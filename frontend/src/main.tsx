@@ -9,6 +9,16 @@ import { initialLocaleReady } from './app/i18n';
 import { applyStoredUiScale } from '@/shared/lib/uiScale';
 import { retireStaleCaches } from './pwa/retireStaleCaches';
 import './index.css';
+// ฉบับไทย: ฟอนต์ไทย/Inter (bundle ในแอป) + ธีมตามแบบ
+import '@fontsource/noto-sans-thai/400.css';
+import '@fontsource/noto-sans-thai/500.css';
+import '@fontsource/noto-sans-thai/600.css';
+import '@fontsource/noto-sans-thai/700.css';
+import '@fontsource/inter/400.css';
+import '@fontsource/inter/500.css';
+import '@fontsource/inter/600.css';
+import '@fontsource/inter/700.css';
+import './app/thai/theme-th.css';
 
 // Desktop only: put the saved text size back on the webview as early as
 // possible. The mount at the bottom of this file waits for it.

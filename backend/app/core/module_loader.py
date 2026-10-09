@@ -509,6 +509,17 @@ class ModuleLoader:
                     self._disabled.add(name)
                     logger.info("Module %s is disabled by persisted state", name)
 
+        # ฉบับไทย: ไม่โหลดโมดูลนอกขอบเขต (ดู app/core/thai_edition.py) — โมดูลที่
+        # ตัวที่ใช้งานประกาศ depends ถึงยังถูกโหลดผ่าน resolve_order ตามเดิม
+        from app.core.thai_edition import is_cut
+
+        cut = [name for name in self._manifests if is_cut(name)]
+        for name in cut:
+            self._manifests[name].enabled = False
+            self._disabled.add(name)
+        if cut:
+            logger.info("Thai edition: %d modules outside scope are not loaded", len(cut))
+
         order = self.resolve_order()
 
         logger.info("Loading %d modules in order: %s", len(order), order)

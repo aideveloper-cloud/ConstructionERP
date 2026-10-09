@@ -76,9 +76,12 @@ const consumers = mapConsumers();
 
 describe('the shared street style config', () => {
   it('serves light and dark street styles from our own origin', () => {
-    expect(VECTOR_BASEMAP_STYLE_URL).toBe('/api/v1/geo-hub/basemap-style/liberty.json');
-    expect(DARK_VECTOR_BASEMAP_STYLE_URL).toBe('/api/v1/geo-hub/basemap-style/dark.json');
-    expect(basemapStyleUrl('positron')).toBe('/api/v1/geo-hub/basemap-style/positron.json');
+    // Root-relative (our own origin), with a cache key carrying the page
+    // origin: the style body names absolute tile URLs for whoever asked.
+    const key = `?v=2&o=${encodeURIComponent(window.location.origin)}`;
+    expect(VECTOR_BASEMAP_STYLE_URL).toBe(`/api/v1/geo-hub/basemap-style/liberty.json${key}`);
+    expect(DARK_VECTOR_BASEMAP_STYLE_URL).toBe(`/api/v1/geo-hub/basemap-style/dark.json${key}`);
+    expect(basemapStyleUrl('positron')).toBe(`/api/v1/geo-hub/basemap-style/positron.json${key}`);
   });
 
   it('picks the dark street style for the dark theme and liberty otherwise', () => {
