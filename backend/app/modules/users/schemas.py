@@ -74,6 +74,27 @@ def _validate_strong_password(value: str) -> str:
 # ── Auth ───────────────────────────────────────────────────────────────────
 
 
+_EMPLOYEE_CODE_RE = re.compile(r"^[A-Z0-9][A-Z0-9._-]{0,49}$")
+
+
+def normalize_employee_code(value: str | None) -> str | None:
+    """Canonical form of an employee ID: trimmed, upper-case; None when blank."""
+    if value is None:
+        return None
+    v = value.strip().upper()
+    return v or None
+
+
+def validate_employee_code(value: str | None) -> str | None:
+    """Normalise and check an employee ID (letters, digits, ``. _ -``, max 50)."""
+    v = normalize_employee_code(value)
+    if v is None:
+        return None
+    if not _EMPLOYEE_CODE_RE.match(v) or "@" in v:
+        raise ValueError("Employee code may use letters, digits, '.', '_' and '-' only")
+    return v
+
+
 class LoginRequest(BaseModel):
     """User login request.
 
@@ -83,7 +104,10 @@ class LoginRequest(BaseModel):
 
     model_config = ConfigDict(extra="ignore", str_strip_whitespace=True)
 
-    email: EmailStr
+    # The login identifier: an email address or an employee ID (รหัสพนักงาน).
+    # Still named ``email`` so existing clients keep working; anything without
+    # an "@" is looked up as an employee code.
+    email: str = Field(..., min_length=1, max_length=255)
     password: str = Field(..., min_length=1, max_length=128)
 
 
@@ -261,7 +285,14 @@ class AdminUserCreate(BaseModel):
 
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
-    email: EmailStr = Field(..., description="Valid email address (used for login)")
+    # Optional when an employee code is given: many site staff have no email.
+    # The service then files a placeholder address the person never uses.
+    email: EmailStr | None = Field(default=None, description="Email address (login, notifications)")
+    employee_code: str | None = Field(
+        default=None,
+        max_length=50,
+        description="Employee ID used to sign in (รหัสพนักงาน). Letters, digits, . _ -",
+    )
     password: str = Field(
         ...,
         min_length=12,
@@ -290,6 +321,17 @@ class AdminUserCreate(BaseModel):
     @classmethod
     def _sanitize_full_name(cls, v: str) -> str:
         return _sanitize_name(v)
+
+    @field_validator("employee_code")
+    @classmethod
+    def _check_employee_code(cls, v: str | None) -> str | None:
+        return validate_employee_code(v)
+
+    @model_validator(mode="after")
+    def _needs_a_login(self) -> "AdminUserCreate":
+        if self.email is None and self.employee_code is None:
+            raise ValueError("Give an email or an employee code - the user needs one to sign in")
+        return self
 
 
 class UserUpdate(BaseModel):
@@ -320,6 +362,15 @@ class UserAdminUpdate(BaseModel):
     role: str | None = Field(default=None, pattern=r"^(admin|manager|editor|viewer)$")
     is_active: bool | None = None
     locale: str | None = Field(default=None, max_length=10)
+    # Set or change the employee ID; an empty string removes it.
+    employee_code: str | None = Field(default=None, max_length=50)
+
+    @field_validator("employee_code")
+    @classmethod
+    def _check_employee_code(cls, v: str | None) -> str | None:
+        if v is not None and not v.strip():
+            return ""
+        return validate_employee_code(v)
 
     @field_validator("full_name")
     @classmethod
@@ -336,6 +387,7 @@ class UserResponse(BaseModel):
 
     id: UUID
     email: str
+    employee_code: str | None = None
     full_name: str
     role: str
     locale: str

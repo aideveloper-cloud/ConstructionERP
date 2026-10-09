@@ -54,12 +54,92 @@ import {
   inviteUser,
   getUserModuleAccess,
   setUserModuleAccess,
+  type InviteUserPayload,
   type User,
   type UserRole,
   type ModuleAccessLevel,
   type ModuleAccess,
 } from './api';
 import { getIntlLocale } from '@/shared/lib/formatters';
+
+/** Mirrors the backend rule (users/schemas.py ``validate_employee_code``). */
+const EMPLOYEE_CODE_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,49}$/;
+
+/** Staff created without an email get a reserved ``.invalid`` address. */
+const isPlaceholderEmail = (email: string) => email.endsWith('@employee.invalid');
+
+/** Employee ID in the users table, editable in place by the admin. */
+function EmployeeCodeCell({ user }: { user: User }) {
+  const { t } = useTranslation();
+  const queryClient = useQueryClient();
+  const addToast = useToastStore((s) => s.addToast);
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState(user.employee_code ?? '');
+  const valid = !value.trim() || EMPLOYEE_CODE_RE.test(value.trim());
+  const save = useMutation({
+    mutationFn: () => updateUser(user.id, { employee_code: value.trim().toUpperCase() }),
+    meta: { suppressGlobalErrorToast: true },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['users'] });
+      setEditing(false);
+    },
+    onError: (e: Error) =>
+      addToast({
+        type: 'error',
+        title: t('th_ui.users.employee_code_save_failed', { defaultValue: 'บันทึกรหัสพนักงานไม่สำเร็จ' }),
+        message: e.message.includes('already')
+          ? t('th_ui.users.employee_code_taken', { defaultValue: 'รหัสพนักงานนี้มีผู้ใช้แล้ว' })
+          : e.message,
+      }),
+  });
+  if (!editing) {
+    return (
+      <button
+        type="button"
+        onClick={() => {
+          setValue(user.employee_code ?? '');
+          setEditing(true);
+        }}
+        className="group inline-flex items-center gap-1.5 rounded px-1 py-0.5 font-mono text-xs hover:bg-surface-secondary"
+        title={t('th_ui.users.employee_code_edit', { defaultValue: 'แก้ไขรหัสพนักงาน' })}
+      >
+        {user.employee_code ? (
+          <span className="text-content-primary">{user.employee_code}</span>
+        ) : (
+          <span className="text-content-quaternary">{t('th_ui.users.employee_code_add', { defaultValue: '+ เพิ่ม' })}</span>
+        )}
+        <Edit3 size={11} className="text-content-quaternary opacity-0 group-hover:opacity-100" />
+      </button>
+    );
+  }
+  return (
+    <form
+      className="flex items-center gap-1"
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (valid) save.mutate();
+      }}
+    >
+      <input
+        autoFocus
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onKeyDown={(e) => e.key === 'Escape' && setEditing(false)}
+        className={clsx(
+          'h-7 w-28 rounded border bg-surface-primary px-1.5 font-mono text-xs uppercase focus:outline-none focus:ring-2 focus:ring-oe-blue/30',
+          valid ? 'border-border' : 'border-semantic-error',
+        )}
+        aria-label={t('th_ui.users.employee_code', { defaultValue: 'รหัสพนักงาน' })}
+      />
+      <button type="submit" disabled={!valid || save.isPending} className="rounded p-1 text-semantic-success hover:bg-surface-secondary disabled:opacity-40">
+        <Check size={13} />
+      </button>
+      <button type="button" onClick={() => setEditing(false)} className="rounded p-1 text-content-tertiary hover:bg-surface-secondary">
+        <X size={13} />
+      </button>
+    </form>
+  );
+}
 
 const inputCls =
   'h-10 w-full rounded-lg border border-border bg-surface-primary px-3 text-sm focus:outline-none focus:ring-2 focus:ring-oe-blue/30 focus:border-oe-blue';
@@ -236,11 +316,12 @@ function InviteModal({
   isPending,
 }: {
   onClose: () => void;
-  onSubmit: (data: { email: string; password: string; full_name: string; role: UserRole }) => void;
+  onSubmit: (data: InviteUserPayload) => void;
   isPending: boolean;
 }) {
   const { t } = useTranslation();
   const [form, setForm] = useState({
+    employee_code: '',
     email: '',
     password: '',
     full_name: '',
@@ -252,8 +333,15 @@ function InviteModal({
   // doesn't bounce off a server 422 after the fact.
   const passwordOk =
     form.password.length >= 12 && /[A-Za-z]/.test(form.password) && /\d/.test(form.password);
+  // A login needs one identifier: the employee ID, the email, or both.
+  const codeOk = !form.employee_code.trim() || EMPLOYEE_CODE_RE.test(form.employee_code.trim());
   const canSubmit =
-    !isPending && !!form.email && !!form.full_name && !!form.password && passwordOk;
+    !isPending &&
+    (!!form.email.trim() || !!form.employee_code.trim()) &&
+    codeOk &&
+    !!form.full_name &&
+    !!form.password &&
+    passwordOk;
 
   return (
     <WideModal
@@ -272,7 +360,15 @@ function InviteModal({
             icon={<UserPlus size={14} />}
             disabled={!canSubmit}
             loading={isPending}
-            onClick={() => onSubmit(form)}
+            onClick={() =>
+              onSubmit({
+                full_name: form.full_name,
+                password: form.password,
+                role: form.role,
+                ...(form.email.trim() ? { email: form.email.trim() } : {}),
+                ...(form.employee_code.trim() ? { employee_code: form.employee_code.trim().toUpperCase() } : {}),
+              })
+            }
           >
             {isPending
               ? t('common.creating', { defaultValue: 'Creating...' })
@@ -302,10 +398,39 @@ function InviteModal({
         </div>
         <div>
           <label
+            htmlFor="invite_employee_code"
+            className="block text-xs font-medium text-content-secondary mb-1"
+          >
+            {t('th_ui.users.employee_code', { defaultValue: 'รหัสพนักงาน' })}
+          </label>
+          <input
+            id="invite_employee_code"
+            className={clsx(inputCls, 'font-mono uppercase')}
+            value={form.employee_code}
+            onChange={(e) => setForm({ ...form, employee_code: e.target.value })}
+            placeholder={t('th_ui.users.employee_code_placeholder', { defaultValue: 'เช่น EMP001' })}
+            autoCapitalize="characters"
+            spellCheck={false}
+          />
+          <p className={clsx('mt-1 text-xs', codeOk ? 'text-content-tertiary' : 'text-semantic-error')}>
+            {codeOk
+              ? t('th_ui.users.employee_code_hint', {
+                  defaultValue: 'ใช้เข้าสู่ระบบแทนอีเมลได้ ใส่อย่างน้อยหนึ่งอย่างระหว่างรหัสพนักงานกับอีเมล',
+                })
+              : t('th_ui.users.employee_code_invalid', {
+                  defaultValue: 'ใช้ได้เฉพาะตัวอักษรอังกฤษ ตัวเลข และ . _ -',
+                })}
+          </p>
+        </div>
+        <div>
+          <label
             htmlFor="invite_email"
             className="block text-xs font-medium text-content-secondary mb-1"
           >
             {t('users.email', { defaultValue: 'Email' })}
+            <span className="ms-1 font-normal text-content-quaternary">
+              {t('th_ui.users.optional', { defaultValue: '(ไม่บังคับถ้ามีรหัสพนักงาน)' })}
+            </span>
           </label>
           <input
             id="invite_email"
@@ -912,7 +1037,10 @@ export function UserManagementPage() {
     if (!search) return users;
     const q = search.toLowerCase();
     return users.filter(
-      (u) => u.full_name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q),
+      (u) =>
+        u.full_name.toLowerCase().includes(q) ||
+        u.email.toLowerCase().includes(q) ||
+        (u.employee_code ?? '').toLowerCase().includes(q),
     );
   }, [users, search]);
 
@@ -1048,6 +1176,9 @@ export function UserManagementPage() {
                   {t('users.name', { defaultValue: 'Name' })}
                 </th>
                 <th className="text-left px-4 py-2.5 text-xs font-semibold text-content-secondary uppercase tracking-wider">
+                  {t('th_ui.users.employee_code', { defaultValue: 'รหัสพนักงาน' })}
+                </th>
+                <th className="text-left px-4 py-2.5 text-xs font-semibold text-content-secondary uppercase tracking-wider">
                   {t('users.email', { defaultValue: 'Email' })}
                 </th>
                 <th className="text-left px-4 py-2.5 text-xs font-semibold text-content-secondary uppercase tracking-wider">
@@ -1068,14 +1199,14 @@ export function UserManagementPage() {
               {isLoading ? (
                 Array.from({ length: 5 }).map((_, i) => (
                   <tr key={i} className="border-b border-border/50">
-                    <td colSpan={6} className="px-4 py-3">
+                    <td colSpan={7} className="px-4 py-3">
                       <div className="h-4 w-full bg-surface-secondary rounded animate-pulse" />
                     </td>
                   </tr>
                 ))
               ) : filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="text-center py-12 text-content-tertiary">
+                  <td colSpan={7} className="text-center py-12 text-content-tertiary">
                     <Users size={32} className="mx-auto mb-2 opacity-30" />
                     <p>{t('users.no_users', { defaultValue: 'No users found' })}</p>
                   </td>
@@ -1101,11 +1232,18 @@ export function UserManagementPage() {
                         <span className="font-medium">{user.full_name}</span>
                       </div>
                     </td>
+                    <td className="px-4 py-2.5">
+                      <EmployeeCodeCell user={user} />
+                    </td>
                     <td className="px-4 py-2.5 text-content-secondary">
-                      <div className="flex items-center gap-1.5">
-                        <Mail size={12} className="text-content-quaternary" />
-                        {user.email}
-                      </div>
+                      {isPlaceholderEmail(user.email) ? (
+                        <span className="text-content-quaternary">—</span>
+                      ) : (
+                        <div className="flex items-center gap-1.5">
+                          <Mail size={12} className="text-content-quaternary" />
+                          {user.email}
+                        </div>
+                      )}
                     </td>
                     <td className="px-4 py-2.5">
                       <RoleDropdown

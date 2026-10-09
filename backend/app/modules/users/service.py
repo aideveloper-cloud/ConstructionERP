@@ -564,14 +564,28 @@ class UserService:
         Raises:
             HTTPException 409 if the email is already registered.
         """
-        if await self.user_repo.email_exists(data.email):
+        if data.email is not None and await self.user_repo.email_exists(data.email):
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="Email already registered",
             )
+        if data.employee_code and await self.user_repo.get_by_employee_code(data.employee_code):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Employee code already in use",
+            )
+        # Staff without an email sign in with their employee code; the email
+        # column is required and unique, so it holds a placeholder on the
+        # reserved ``.invalid`` domain that can never receive mail.
+        email = (
+            data.email.lower()
+            if data.email is not None
+            else f"{(data.employee_code or '').lower()}@employee.invalid"
+        )
 
         user = User(
-            email=data.email.lower(),
+            email=email,
+            employee_code=data.employee_code,
             hashed_password=hash_password(data.password),
             full_name=data.full_name,
             role=data.role,
@@ -643,7 +657,14 @@ class UserService:
         if email_norm in _DEMO_EMAIL_WHITELIST and _demo_allowed:
             return await self.demo_login(email_norm)
 
-        user = await self.user_repo.get_by_email(data.email)
+        # The identifier is an email when it has an "@", otherwise an employee
+        # ID (รหัสพนักงาน). Both miss the same way, so the error does not tell
+        # which kind of account exists.
+        identifier = (data.email or "").strip()
+        if "@" in identifier:
+            user = await self.user_repo.get_by_email(identifier)
+        else:
+            user = await self.user_repo.get_by_employee_code(identifier)
 
         if user is None:
             # Dummy bcrypt check to prevent timing side-channel (user enumeration)
@@ -1225,6 +1246,17 @@ class UserService:
                 old_role = prior.role
             new_role = str(fields["role"])
 
+        if "employee_code" in fields:
+            code = fields["employee_code"] or None
+            if code is not None:
+                holder = await self.user_repo.get_by_employee_code(str(code))
+                if holder is not None and holder.id != user_id:
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail="Employee code already in use",
+                    )
+            fields["employee_code"] = code
+
         await self.user_repo.update_fields(user_id, **fields)
         user = await self.user_repo.get_by_id(user_id)
         if user is None:
@@ -1450,6 +1482,8 @@ class UserService:
         await self.user_repo.update_fields(
             user_id,
             email=placeholder_email,
+            # The employee ID is a login identifier too; free it with the email.
+            employee_code=None,
             full_name="",
             # A bcrypt hash of a fresh random secret nobody holds: the column is
             # NOT NULL, and ``_is_usable_password_hash`` still reads it as a hash

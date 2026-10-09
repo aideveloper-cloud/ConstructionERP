@@ -585,9 +585,14 @@ class TestLoginRequestSchema:
         assert data.email == "user@example.com"
         assert data.password == "password123"
 
-    def test_invalid_email(self):
+    def test_an_employee_id_is_a_login(self):
+        """Thai edition: the identifier may be an employee ID, not only an email."""
+        data = LoginRequest(email="EMP001", password="password123")
+        assert data.email == "EMP001"
+
+    def test_an_empty_identifier_is_refused(self):
         with pytest.raises(ValidationError):
-            LoginRequest(email="invalid", password="password123")
+            LoginRequest(email="   ", password="password123")
 
     def test_short_password_accepted(self):
         """LoginRequest accepts short passwords — policy is not revealed before auth."""

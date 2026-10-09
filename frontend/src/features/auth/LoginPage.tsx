@@ -4,7 +4,7 @@ import { useState, useRef, useEffect, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, Link, useLocation } from 'react-router-dom';
 import {
-  Eye, EyeOff, Mail, Lock, Globe, ChevronDown, X, Github, Users, ArrowUpRight, Pencil,
+  Eye, EyeOff, IdCard, Lock, Globe, ChevronDown, X, Github, Users, ArrowUpRight, Pencil,
   ShieldCheck, Zap, Brain, Info,
   FileSpreadsheet, CalendarClock, TrendingUp, Boxes, Database,
   BarChart3, Upload, FileCheck,
@@ -280,7 +280,13 @@ export function LoginPage() {
           );
           return;
         }
-        setError(parsed || t('auth.invalid_credentials', 'Invalid email or password'));
+        // 401 = wrong identifier or password. The backend's sentence is English
+        // and names only email; say it in the reader's language and name both.
+        setError(
+          res.status === 401
+            ? t('th_ui.login.invalid', { defaultValue: 'รหัสพนักงาน/อีเมล หรือรหัสผ่านไม่ถูกต้อง' })
+            : parsed || t('auth.invalid_credentials', 'Invalid email or password'),
+        );
         return;
       }
       const data = await res.json();
@@ -861,7 +867,8 @@ export function LoginPage() {
 
             <form onSubmit={handleSubmit} className="space-y-3" aria-label={t('auth.login', 'Sign in')}>
               <div className="animate-stagger-in" style={{ animationDelay: '280ms' }}>
-                <Input id="login-email" name="email" label={t('auth.email', 'Email')} type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@company.com" autoComplete="email" required aria-required="true" autoFocus icon={<Mail size={15} />} />
+                {/* ฉบับไทย: เข้าด้วยรหัสพนักงานหรืออีเมล (backend แยกจากเครื่องหมาย @) */}
+                <Input id="login-email" name="username" label={t('th_ui.login.identifier', { defaultValue: 'รหัสพนักงานหรืออีเมล' })} type="text" value={email} onChange={(e) => setEmail(e.target.value)} placeholder={t('th_ui.login.identifier_placeholder', { defaultValue: 'เช่น EMP001 หรือ you@company.com' })} autoComplete="username" autoCapitalize="none" spellCheck={false} required aria-required="true" autoFocus icon={<IdCard size={15} />} />
               </div>
 
               <div className="flex flex-col gap-1 animate-stagger-in" style={{ animationDelay: '340ms' }}>

@@ -23,6 +23,10 @@ class User(Base):
     __tablename__ = "oe_users_user"
 
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
+    # Thai edition: staff sign in with their employee ID (รหัสพนักงาน) instead
+    # of an email. Stored upper-case and trimmed (see ``normalize_employee_code``)
+    # so "emp001" and "EMP001 " are the same login. NULL = email login only.
+    employee_code: Mapped[str | None] = mapped_column(String(50), unique=True, index=True, nullable=True)
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
     full_name: Mapped[str] = mapped_column(String(255), nullable=False, default="")
     role: Mapped[str] = mapped_column(String(50), nullable=False, default="editor")

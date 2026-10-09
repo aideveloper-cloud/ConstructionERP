@@ -12,6 +12,8 @@ export type ModuleAccessLevel = 'none' | 'view' | 'edit' | 'full';
 export interface User {
   id: string;
   email: string;
+  /** Employee ID used to sign in (รหัสพนักงาน); null = email login only. */
+  employee_code?: string | null;
   full_name: string;
   role: UserRole;
   locale: string;
@@ -27,10 +29,14 @@ export interface UserAdminUpdate {
   role?: UserRole;
   is_active?: boolean;
   locale?: string;
+  /** '' removes the employee ID. */
+  employee_code?: string;
 }
 
 export interface InviteUserPayload {
-  email: string;
+  /** Optional when an employee code is given (staff without email). */
+  email?: string;
+  employee_code?: string;
   password: string;
   full_name: string;
   role: UserRole;
