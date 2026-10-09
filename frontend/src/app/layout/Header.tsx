@@ -270,6 +270,8 @@ export const TITLE_I18N_MAP: Record<string, string> = {
   'ESG Site Performance': 'nav.esg',
   // Communication & documentation
   'Inbox': 'inbox.title',
+  'Approvals': 'th_ui.approvals.title',
+  'Approval Routes': 'approvalRoutes.title',
   'Timeline': 'nav.timeline',
   'Project Timeline': 'nav.timeline',
   'Notifications': 'nav.notifications',

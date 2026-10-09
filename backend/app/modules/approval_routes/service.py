@@ -28,6 +28,7 @@ import logging
 import uuid
 from collections import defaultdict
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal, InvalidOperation
 
 from fastapi import HTTPException, status
 from sqlalchemy import select
@@ -197,6 +198,53 @@ def _caller_role_satisfies(caller_role: str | None, required_role: str) -> bool:
     return ROLE_HIERARCHY.get(caller_resolved, -99) >= ROLE_HIERARCHY.get(required_resolved, 99)
 
 
+def _to_decimal(value: object) -> Decimal | None:
+    """Parse a stored amount string (or number) to Decimal; None when blank/bad."""
+    if value is None or value == "":
+        return None
+    try:
+        return Decimal(str(value))
+    except (InvalidOperation, ValueError):
+        return None
+
+
+def _amount_str(value: object) -> str | None:
+    """Normalise an amount for the ``String(50)`` columns."""
+    dec = _to_decimal(value)
+    return None if dec is None else format(dec, "f")
+
+
+def step_applies(step: Step, amount: Decimal | None) -> bool:
+    """Whether ``step`` is part of the chain for a document of ``amount``.
+
+    A step with no ``min_amount`` always applies. A step with one applies when
+    the amount reaches it. An unknown amount keeps every step: skipping an
+    approval because a number is missing is the unsafe direction.
+    """
+    limit = _to_decimal(step.min_amount)
+    if limit is None or amount is None:
+        return True
+    return Decimal(str(amount)) >= limit
+
+
+def first_applicable_ordinal(steps: list[Step], amount: object) -> int:
+    """Ordinal of the first step that applies (the lowest step if none does)."""
+    dec = _to_decimal(amount)
+    ordered = sorted(steps, key=lambda s: s.ordinal)
+    for s in ordered:
+        if step_applies(s, dec):
+            return s.ordinal
+    return ordered[0].ordinal if ordered else 1
+
+
+def next_applicable_ordinal(steps: list[Step], after: int, amount: Decimal | None) -> int | None:
+    """Ordinal of the next applicable step after ``after``, or None at the end."""
+    for s in sorted(steps, key=lambda s: s.ordinal):
+        if s.ordinal > after and step_applies(s, amount):
+            return s.ordinal
+    return None
+
+
 class ApprovalRouteService:
     """Business logic for the approval-routes feature."""
 
@@ -276,6 +324,7 @@ class ApprovalRouteService:
                 mode=s.mode,
                 required_approver_count=s.required_approver_count,
                 sla_hours=s.sla_hours,
+                min_amount=_amount_str(s.min_amount),
             )
             for s in payload.steps
         ]
@@ -334,6 +383,7 @@ class ApprovalRouteService:
                     mode=s.mode,
                     required_approver_count=s.required_approver_count,
                     sla_hours=s.sla_hours,
+                    min_amount=_to_decimal(s.min_amount),
                 )
                 for s in source_steps
             ],
@@ -387,6 +437,7 @@ class ApprovalRouteService:
                     mode=s.mode,
                     required_approver_count=s.required_approver_count,
                     sla_hours=s.sla_hours,
+                    min_amount=_amount_str(s.min_amount),
                 )
                 for s in payload.steps
             ]
@@ -709,16 +760,30 @@ class ApprovalRouteService:
                 detail="An approval workflow is already pending on this target",
             )
 
+        # The amount decides which steps apply. Taken from the caller when
+        # given, otherwise read off the target document (targets.py).
+        amount = payload.amount
+        currency = payload.currency
+        if amount is None:
+            from app.modules.approval_routes.targets import resolve_target  # noqa: PLC0415
+
+            summary = await resolve_target(self.session, payload.target_kind, payload.target_id)
+            if summary is not None:
+                amount = summary.amount
+                currency = currency or summary.currency
+
         now = datetime.now(UTC)
         instance = Instance(
             route_id=route.id,
             target_kind=payload.target_kind,
             target_id=payload.target_id,
-            current_step_ordinal=1,
+            current_step_ordinal=first_applicable_ordinal(steps, amount),
             status="pending",
             started_at=now,
             completed_at=None,
             started_by=started_by,
+            amount=_amount_str(amount),
+            currency=currency or None,
         )
         await self.repo.add_instance(instance)
 
@@ -915,7 +980,10 @@ class ApprovalRouteService:
             else:
                 # Move to next step - the next step starts with its own
                 # approver, so any per-step override is cleared.
-                instance.current_step_ordinal = step.ordinal + 1
+                steps_all = await self.repo.list_steps(instance.route_id)
+                instance.current_step_ordinal = next_applicable_ordinal(
+                    steps_all, step.ordinal, _to_decimal(instance.amount)
+                ) or (step.ordinal + 1)
                 instance.current_assignee_user_id = None
                 events_to_fire.append(("approval_routes.instance.advanced", {**base_event, "status": "pending"}))
 
@@ -1406,9 +1474,10 @@ class ApprovalRouteService:
             return None
 
         # Check whether there is a next step.
+        # The next step is the next one whose approval limit the document
+        # reaches; steps below their ``min_amount`` are skipped, not waited on.
         steps = await self.repo.list_steps(instance.route_id)
-        next_ordinal = step.ordinal + 1
-        has_next = any(s.ordinal == next_ordinal for s in steps)
+        has_next = next_applicable_ordinal(steps, step.ordinal, _to_decimal(instance.amount)) is not None
         return not has_next  # True == finished, False == has next step
 
 

@@ -62,6 +62,9 @@ TARGET_KINDS: tuple[str, ...] = (
     # subscriber starts an instance against the inspection so the gate cannot
     # release without a formal disposition approval (item 12).
     "qms_hold_point",
+    # Thai edition: milestone/progress billing (งวดงาน) goes through the
+    # approval center like any other money document.
+    "progress_claim",
 )
 
 # Aggregation mode at a single step when the approver_role expands to
@@ -147,6 +150,11 @@ class Step(Base):
     # author did not declare a quorum.
     required_approver_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     sla_hours: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Approval limit (Thai edition, Mango-style "วงเงินอนุมัติ"): the step only
+    # applies when the document amount is at least this much, so an MD step
+    # can sit behind "over 200,000". NULL means the step always applies.
+    # Decimal-precise string for SQLite parity, like the procurement amounts.
+    min_amount: Mapped[str | None] = mapped_column(String(50), nullable=True)
 
     def __repr__(self) -> str:  # pragma: no cover
         target = self.approver_role or str(self.approver_user_id)
@@ -202,6 +210,11 @@ class Instance(Base):
         ForeignKey("oe_users_user.id", ondelete="SET NULL"),
         nullable=True,
     )
+    # Snapshot of the document amount when the workflow started. Drives which
+    # steps apply (``Step.min_amount``) and is what the approver is shown, so
+    # editing the document afterwards cannot shrink the chain under way.
+    amount: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    currency: Mapped[str | None] = mapped_column(String(10), nullable=True)
 
     def __repr__(self) -> str:  # pragma: no cover
         return f"<Instance {self.target_kind}:{self.target_id} step={self.current_step_ordinal} status={self.status}>"

@@ -102,6 +102,8 @@ interface DraftStep {
   approver_user_id: string;
   mode: RouteStepMode;
   sla_hours: string;
+  /** Approval limit typed by the admin; '' = the step always applies. */
+  min_amount: string;
 }
 
 function newLocalId(): string {
@@ -109,13 +111,20 @@ function newLocalId(): string {
   return `step-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 }
 
-function toDraft(step: { approver_role: string | null; approver_user_id: string | null; mode: RouteStepMode; sla_hours: number | null }): DraftStep {
+function toDraft(step: {
+  approver_role: string | null;
+  approver_user_id: string | null;
+  mode: RouteStepMode;
+  sla_hours: number | null;
+  min_amount?: string | null;
+}): DraftStep {
   return {
     localId: newLocalId(),
     approver_role: step.approver_role ?? '',
     approver_user_id: step.approver_user_id ?? '',
     mode: step.mode,
     sla_hours: step.sla_hours != null ? String(step.sla_hours) : '',
+    min_amount: step.min_amount != null ? String(Number(step.min_amount)) : '',
   };
 }
 
@@ -135,6 +144,7 @@ function toStepPayloads(steps: DraftStep[]): RouteStepPayload[] {
       approver_user_id: s.approver_user_id.trim() || null,
       mode,
       sla_hours: s.sla_hours ? parseInt(s.sla_hours, 10) : null,
+      min_amount: s.min_amount.trim() ? s.min_amount.replace(/,/g, '').trim() : null,
     };
   });
 }
@@ -146,6 +156,7 @@ function emptyDraftStep(): DraftStep {
     approver_user_id: '',
     mode: 'all',
     sla_hours: '',
+    min_amount: '',
   };
 }
 
@@ -317,6 +328,12 @@ export function RouteEditor({
       if (!s.approver_role.trim() && !s.approver_user_id.trim()) {
         return t('approvalRoutes.error_step_approver_required', {
           defaultValue: 'Step {{n}}: pick an approver role or user.',
+          n: i + 1,
+        });
+      }
+      if (s.min_amount.trim() && !/^\d+(\.\d{1,2})?$/.test(s.min_amount.replace(/,/g, '').trim())) {
+        return t('approvalRoutes.error_min_amount', {
+          defaultValue: 'Step {{n}}: the approval limit must be an amount, e.g. 200000.',
           n: i + 1,
         });
       }
@@ -745,6 +762,27 @@ function StepEditorRow({
             placeholder="—"
             className="h-8 w-full rounded-md border border-border bg-surface-primary px-2 text-xs focus:outline-none focus:ring-2 focus:ring-oe-blue/30 focus:border-oe-blue tabular-nums"
           />
+        </div>
+
+        {/* Approval limit (Thai edition, Mango "วงเงินอนุมัติ") */}
+        <div className="sm:col-span-12">
+          <label className="block text-2xs font-medium text-content-tertiary uppercase tracking-wide mb-1">
+            {t('approvalRoutes.min_amount', { defaultValue: 'Applies from amount' })}
+          </label>
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              inputMode="decimal"
+              value={step.min_amount}
+              onChange={(e) => onChange('min_amount', e.target.value)}
+              placeholder={t('approvalRoutes.min_amount_placeholder', { defaultValue: 'every amount' })}
+              className="h-8 w-44 rounded-md border border-border bg-surface-primary px-2 text-xs focus:outline-none focus:ring-2 focus:ring-oe-blue/30 focus:border-oe-blue tabular-nums"
+            />
+            <span className="text-2xs text-content-tertiary">
+              {t('approvalRoutes.min_amount_hint', {
+                defaultValue: 'Leave empty to always include this step. With an amount, documents below it skip this step.',
+              })}
+            </span>
+          </div>
         </div>
       </div>
     </div>

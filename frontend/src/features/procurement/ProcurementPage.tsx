@@ -19,6 +19,7 @@ import {
   Send,
   CheckCircle2,
   Ban,
+  Clock,
 } from 'lucide-react';
 import {
   Button,
@@ -38,7 +39,7 @@ import { MoneyDisplay } from '@/shared/ui/MoneyDisplay';
 import { OrderInvoicedSummary } from './OrderInvoicedSummary';
 import { DateDisplay } from '@/shared/ui/DateDisplay';
 import { ContactSearchInput } from '@/shared/ui/ContactSearchInput';
-import { apiGet, apiPost, apiPatch, type Page } from '@/shared/lib/api';
+import { ApiError, apiGet, apiPost, apiPatch, type Page } from '@/shared/lib/api';
 import { TruncationNotice } from '@/shared/ui/TruncationNotice';
 import { useToastStore } from '@/stores/useToastStore';
 import { useProjectContextStore } from '@/stores/useProjectContextStore';
@@ -60,6 +61,12 @@ import { RecordDeliveryModal } from './RecordDeliveryModal';
 import { fmtFixed } from '@/shared/lib/formatters';
 import { orderSource, rfqDeepLink } from '@/shared/lib/awardChainLinks';
 import { RelatedRecordLink } from '@/shared/ui/RelatedRecordLink';
+import { SHOW_UPSTREAM_EXTRAS } from '@/app/thai/flags';
+import { submitForApproval, APPROVAL_QUEUE_ROOT } from '@/features/th-approvals/api';
+import { INBOX_QUERY_ROOT } from '@/features/inbox/useInbox';
+
+/** ฉบับไทย: PO ร่างต้อง "ส่งอนุมัติ" เข้าสายอนุมัติ แทนการกดอนุมัติเองตรงๆ */
+const ROUTED_PO_APPROVAL = !SHOW_UPSTREAM_EXTRAS;
 
 // English fallbacks for the computed `procurement.gr_status_*` keys. The default used to be
 // the raw value, so until the key lands in a locale the screen shows the bare
@@ -960,6 +967,57 @@ function PurchaseOrdersTab({
      audit-logs the transition. After success we re-run the PO list query
      so the status pipeline and Issue/Invoice button visibility update
      in place. */
+  /* ── Send a PO for approval (Thai edition) ──
+     Starts the company's purchase-order approval chain; the approval center
+     decides it and the PO turns approved when the chain completes (backend
+     procurement/approval_subscribers.py). Pending chains are read once per
+     list so each draft row can say it is already waiting. */
+  const { data: pendingPOApprovals } = useQuery({
+    queryKey: ['po-pending-approvals', projectId],
+    queryFn: () =>
+      apiGet<{ target_id: string }[]>(
+        '/v1/approval-routes/instances?target_kind=purchase_order&status=pending&limit=500',
+      ),
+    enabled: ROUTED_PO_APPROVAL && !!projectId,
+    staleTime: 15_000,
+  });
+  const poAwaitingApproval = useMemo(
+    () => new Set((Array.isArray(pendingPOApprovals) ? pendingPOApprovals : []).map((i) => i.target_id)),
+    [pendingPOApprovals],
+  );
+  const submitPOMut = useMutation({
+    mutationFn: (poId: string) => submitForApproval('purchase_order', poId),
+    meta: { suppressGlobalErrorToast: true },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['po-pending-approvals', projectId] });
+      queryClient.invalidateQueries({ queryKey: [APPROVAL_QUEUE_ROOT] });
+      queryClient.invalidateQueries({ queryKey: [INBOX_QUERY_ROOT] });
+      addToast({
+        type: 'success',
+        title: t('th_ui.po.sent_title', { defaultValue: 'ส่งอนุมัติแล้ว' }),
+        message: t('th_ui.po.sent_body', { defaultValue: 'ติดตามได้ที่ศูนย์อนุมัติ แท็บ "ที่ฉันส่ง"' }),
+      });
+    },
+    onError: (e: unknown) => {
+      const noRoute =
+        e instanceof ApiError && e.status === 409 && JSON.stringify(e.body ?? '').includes('no_route');
+      const pending = e instanceof ApiError && e.status === 409 && !noRoute;
+      addToast({
+        type: noRoute || pending ? 'warning' : 'error',
+        title: noRoute
+          ? t('th_ui.po.no_route_title', { defaultValue: 'ยังไม่ได้ตั้งสายอนุมัติใบสั่งซื้อ' })
+          : pending
+            ? t('th_ui.po.pending_title', { defaultValue: 'ใบสั่งซื้อนี้อยู่ระหว่างอนุมัติแล้ว' })
+            : t('common.error', { defaultValue: 'Error' }),
+        message: noRoute
+          ? t('th_ui.po.no_route_body', { defaultValue: 'ให้ผู้ดูแลระบบตั้งสายอนุมัติและวงเงินในหน้าตั้งค่า' })
+          : e instanceof Error
+            ? e.message
+            : undefined,
+      });
+    },
+  });
+
   const issuePOMut = useMutation({
     mutationFn: (poId: string) =>
       apiPost(`/v1/procurement/${poId}/issue/`, {}),
@@ -1729,7 +1787,29 @@ function PurchaseOrdersTab({
                         and only approved rows show Issue - matching the
                         backend FSM (draft→approved→issued). The chip stays
                         tappable at 44x32 when the row stacks on phones. */}
-                    {po.status === 'draft' && (
+                    {ROUTED_PO_APPROVAL && po.status === 'draft' && poAwaitingApproval.has(po.id) && (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-[#fff7e6] px-2 py-1 text-[11px] font-semibold text-[#b45309]">
+                        <Clock size={12} />
+                        {t('th_ui.po.awaiting', { defaultValue: 'รออนุมัติ' })}
+                      </span>
+                    )}
+                    {ROUTED_PO_APPROVAL && po.status === 'draft' && !poAwaitingApproval.has(po.id) && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => submitPOMut.mutate(po.id)}
+                        disabled={submitPOMut.isPending}
+                        title={t('th_ui.po.submit_hint', { defaultValue: 'ส่งเข้าสายอนุมัติตามวงเงิน' })}
+                      >
+                        {submitPOMut.isPending && submitPOMut.variables === po.id ? (
+                          <Loader2 size={14} className="animate-spin mr-1" />
+                        ) : (
+                          <Send size={14} className="mr-1" />
+                        )}
+                        {t('th_ui.po.submit', { defaultValue: 'ส่งอนุมัติ' })}
+                      </Button>
+                    )}
+                    {!ROUTED_PO_APPROVAL && po.status === 'draft' && (
                       <Button
                         variant="ghost"
                         size="sm"

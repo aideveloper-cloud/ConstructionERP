@@ -236,7 +236,7 @@ export function ThaiOverviewPage() {
         <Kpi
           label={t('th_ui.overview.kpi_approvals', { defaultValue: 'รายการรออนุมัติ' })}
           value={String(approvals).padStart(2, '0')}
-          foot={<Link to="/inbox" className="font-bold text-oe-blue">{t('th_ui.overview.go_approvals', { defaultValue: 'ไปศูนย์อนุมัติ →' })}</Link>}
+          foot={<Link to="/approvals" className="font-bold text-oe-blue">{t('th_ui.overview.go_approvals', { defaultValue: 'ไปศูนย์อนุมัติ →' })}</Link>}
           icon={<CheckCircle2 size={16} />}
           tone="bg-[#f1eaff] text-[#8456d9]"
         />

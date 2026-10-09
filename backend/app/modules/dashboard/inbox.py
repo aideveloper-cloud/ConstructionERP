@@ -175,6 +175,54 @@ async def _collect_change_order_approvals(
     return items
 
 
+async def _collect_route_approvals(
+    session: AsyncSession,
+    user_id: uuid.UUID,
+    project_ids: list[uuid.UUID],
+    *,
+    is_admin: bool,
+) -> list[dict[str, Any]]:
+    """Approval-route steps the caller may decide now (approval center "mine").
+
+    Built from the approval center queue itself, so the header badge and the
+    center count the same rows by the same entitlement rule.
+    """
+    from app.modules.approval_routes.queue import build_queue  # noqa: PLC0415
+    from app.modules.users.models import User  # noqa: PLC0415
+
+    role = (await session.execute(select(User.role).where(User.id == user_id))).scalar_one_or_none()
+    queue = await build_queue(
+        session,
+        user_id=str(user_id),
+        caller_role=role,
+        accessible_project_ids=None if is_admin else set(project_ids),
+        tab="mine",
+        limit=_PER_SOURCE_CAP,
+    )
+    items: list[dict[str, Any]] = []
+    for row in queue["items"]:
+        target = row.get("target") or {}
+        code = target.get("code") or ""
+        items.append(
+            {
+                "id": f"approval_route:{row['instance_id']}",
+                "kind": KIND_APPROVAL,
+                "source": "approval_route",
+                "title": f"Approve {row['target_kind']} {code}".strip(),
+                "title_key": "inbox.approval_route",
+                "body_context": {"code": code, "title": target.get("title") or "", "kind": row["target_kind"]},
+                "project_id": (row.get("project") or {}).get("id"),
+                "project_name": (row.get("project") or {}).get("name"),
+                "entity_type": row["target_kind"],
+                "entity_id": row["target_id"],
+                "action_url": "/approvals",
+                "severity": "warning",
+                "created_at": row.get("started_at"),
+            },
+        )
+    return items
+
+
 async def _collect_alerts(
     session: AsyncSession,
     user_id: uuid.UUID,
@@ -317,6 +365,7 @@ async def compute_inbox(
         for collector in (
             lambda: _collect_file_approvals(session, project_ids, uid),
             lambda: _collect_change_order_approvals(session, project_ids, uid, project_name_by_id),
+            lambda: _collect_route_approvals(session, uid, project_ids, is_admin=is_admin),
         ):
             try:
                 approvals.extend(await collector())

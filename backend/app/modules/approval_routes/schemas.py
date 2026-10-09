@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from decimal import Decimal
 from typing import Literal
 from uuid import UUID
 
@@ -22,6 +23,7 @@ TargetKindLiteral = Literal[
     "invoice",
     "purchase_order",
     "qms_hold_point",
+    "progress_claim",
 ]
 StepModeLiteral = Literal["all", "any", "majority"]
 InstanceStatusLiteral = Literal["pending", "approved", "rejected", "cancelled"]
@@ -45,6 +47,8 @@ class StepCreate(BaseModel):
     # in service._maybe_advance for the fallback.
     required_approver_count: int | None = Field(default=None, ge=1, le=100)
     sla_hours: int | None = Field(default=None, ge=1, le=720)
+    # Approval limit: the step applies only from this document amount up.
+    min_amount: Decimal | None = Field(default=None, ge=0)
 
     @model_validator(mode="after")
     def _exactly_one_approver(self) -> StepCreate:
@@ -68,6 +72,7 @@ class StepResponse(BaseModel):
     mode: str
     required_approver_count: int | None
     sla_hours: int | None
+    min_amount: str | None = None
 
 
 # ── Route payloads ───────────────────────────────────────────────────
@@ -185,6 +190,10 @@ class InstanceCreate(BaseModel):
     route_id: UUID
     target_kind: TargetKindLiteral
     target_id: UUID
+    # Document amount for the approval limits. Left out, the service reads it
+    # from the target document itself (see ``targets.py``).
+    amount: Decimal | None = Field(default=None, ge=0)
+    currency: str | None = Field(default=None, max_length=10)
 
 
 class InstanceResponse(BaseModel):
@@ -205,6 +214,8 @@ class InstanceResponse(BaseModel):
     # means the step's own approver / role (or its resolved out-of-office
     # delegate) is responsible; a value is a one-tap reassignment override.
     current_assignee_user_id: UUID | None = None
+    amount: str | None = None
+    currency: str | None = None
     created_at: datetime
     updated_at: datetime
     step_states: list[StepStateResponse] = Field(default_factory=list)
@@ -218,6 +229,26 @@ class DecisionSubmit(BaseModel):
     step_id: UUID
     decision: Literal["approved", "rejected"]
     comment: str | None = Field(default=None, max_length=2000)
+
+
+class QueueDecision(BaseModel):
+    """Approval center: decide the current step of one or many instances."""
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    instance_ids: list[UUID] = Field(min_length=1, max_length=100)
+    decision: Literal["approved", "rejected"]
+    comment: str | None = Field(default=None, max_length=2000)
+
+
+class QueueSubmit(BaseModel):
+    """Approval center: send a document for approval on its route."""
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    target_kind: TargetKindLiteral
+    target_id: UUID
+    route_id: UUID | None = None
 
 
 class CancelInstance(BaseModel):

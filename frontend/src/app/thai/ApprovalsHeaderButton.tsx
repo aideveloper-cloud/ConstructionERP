@@ -1,6 +1,6 @@
 /**
  * ปุ่ม "อนุมัติ" บนแถบบน พร้อมจำนวนเอกสารที่รออนุมัติ — กดแล้วไปศูนย์อนุมัติ
- * ใช้คิวเดียวกับหน้า /inbox (React Query dedupe ด้วย key เดียวกัน)
+ * ตัวเลขจาก /v1/dashboard/inbox/ (รวมคิว "รอฉันอนุมัติ" ของศูนย์อนุมัติแล้ว) กดแล้วไปหน้า /approvals
  */
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
@@ -16,7 +16,7 @@ export function ApprovalsHeaderButton() {
   return (
     <button
       type="button"
-      onClick={() => navigate('/inbox')}
+      onClick={() => navigate('/approvals')}
       title={t('th_ui.approvals_title', { defaultValue: 'เอกสารรออนุมัติ' })}
       className="relative flex h-9 items-center gap-1.5 rounded-[9px] border border-border-light bg-surface-primary px-2.5 text-xs font-semibold text-content-secondary hover:bg-surface-secondary"
     >

@@ -52,7 +52,7 @@ export const THAI_NAV: ThaiNavItem[] = [
   { key: 'workforce', to: '/field-time', icon: Users, also: ['/resources', '/payroll'] },
   { key: 'equipment', to: '/equipment', icon: Wrench },
   { key: 'documents', to: '/documents', icon: FileText, also: ['/reports', '/reporting'] },
-  { key: 'approvals', to: '/inbox', icon: CheckCircle2, also: ['/approval-routes'], badge: 'approvals' },
+  { key: 'approvals', to: '/approvals', icon: CheckCircle2, also: ['/inbox', '/approval-routes'], badge: 'approvals' },
   { key: 'settings', to: '/settings', icon: Settings, also: ['/users', '/admin'], adminOnly: true },
 ];
 

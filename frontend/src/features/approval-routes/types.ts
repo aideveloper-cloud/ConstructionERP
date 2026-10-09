@@ -48,6 +48,9 @@ export interface RouteStep {
    *  when the author did not declare a quorum. */
   required_approver_count: number | null;
   sla_hours: number | null;
+  /** Approval limit: the step applies only from this document amount up
+   *  (decimal string). null = always applies. */
+  min_amount?: string | null;
 }
 
 /** A reusable approval-route template scoped to a project (or global). */
@@ -75,6 +78,7 @@ export interface RouteStepPayload {
   approver_user_id?: string | null;
   mode: RouteStepMode;
   sla_hours?: number | null;
+  min_amount?: string | null;
 }
 
 export interface ApprovalRouteCreatePayload {

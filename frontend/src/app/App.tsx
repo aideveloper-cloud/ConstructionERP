@@ -63,6 +63,12 @@ const TemplatesPage = lazy(() => import('@/features/boq/TemplatesPage').then((m)
 const NlRuleBuilderPanel = lazy(() =>
   import('@/features/compliance').then((m) => ({ default: m.NlRuleBuilderPanel })),
 );
+const ApprovalCenterPage = lazy(() =>
+  import('@/features/th-approvals/ApprovalCenterPage').then((m) => ({ default: m.ApprovalCenterPage })),
+);
+const ApprovalRoutesPage = lazy(() =>
+  import('@/features/approval-routes/ApprovalRoutesPage').then((m) => ({ default: m.ApprovalRoutesPage })),
+);
 const ModuleVideosSlot = lazy(() =>
   import('@/features/videos/ModuleVideosSlot').then((m) => ({ default: m.ModuleVideosSlot })),
 );
@@ -1356,6 +1362,7 @@ export default function App() {
         <Route path="/analytics" element={<P title="Analytics"><AnalyticsPage /></P>} />
 
         <Route path="/inbox" element={<P title="Inbox"><InboxPage /></P>} />
+        <Route path="/approvals" element={<P title="Approvals"><ApprovalCenterPage /></P>} />
         <Route path="/timeline" element={<P title="Timeline"><TimelinePage /></P>} />
         <Route path="/dashboards" element={<P title="Dashboards"><SnapshotsPage /></P>} />
         <Route path="/projects/:projectId/dashboards" element={<P title="Dashboards"><SnapshotsPage /></P>} />
@@ -1505,7 +1512,15 @@ export default function App() {
         <Route path="/admin/permissions" element={<Navigate to="/governance?tab=permissions" replace />} />
         <Route path="/admin/webhook-targets" element={<P title="Webhook Targets"><WebhookTargetsPage /></P>} />
         <Route path="/admin/validation-rules" element={<Navigate to="/governance?tab=validation" replace />} />
-        <Route path="/approval-routes" element={<Navigate to="/governance?tab=approvals" replace />} />
+        {/* ฉบับไทย: /governance ถูกปิด จึงเปิดหน้าตั้งค่าสายอนุมัติตรงที่นี่ */}
+        <Route
+          path="/approval-routes"
+          element={
+            SHOW_UPSTREAM_EXTRAS
+              ? <Navigate to="/governance?tab=approvals" replace />
+              : <P title="Approval Routes"><ApprovalRoutesPage /></P>
+          }
+        />
         {/* Legacy redirect — moved 2026-05-23 from PropDev settings; now to Governance. */}
         <Route path="/property-dev/settings/validation-rules" element={<Navigate to="/governance?tab=validation" replace />} />
         <Route path="/modules" element={<P title="Modules"><ModulesPage /></P>} />

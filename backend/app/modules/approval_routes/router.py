@@ -53,6 +53,8 @@ from app.modules.approval_routes.schemas import (
     EscalationOut,
     InstanceCreate,
     InstanceResponse,
+    QueueDecision,
+    QueueSubmit,
     ReassignInstance,
     RouteCloneRequest,
     RouteCreate,
@@ -753,3 +755,111 @@ async def revoke_delegation(
             detail="Delegation not found",
         )
     await service.revoke_delegation(delegation_id, actor_id=me)
+
+
+# ── Approval center queue (Thai edition) ─────────────────────────────
+
+
+async def _scope_ids(session: SessionDep, user_id: str) -> set[uuid.UUID] | None:
+    """Project ids the caller may see, or ``None`` for an admin (everything).
+
+    The same scope the dashboard inbox uses, so the badge count in the header
+    and the approval center agree.
+    """
+    from app.modules.dashboard.service import accessible_projects, is_admin  # noqa: PLC0415
+
+    if await is_admin(session, user_id):
+        return None
+    return {p.id for p in await accessible_projects(session, user_id)}
+
+
+@router.get(
+    "/queue",
+    dependencies=[Depends(RequirePermission("approval_routes.read"))],
+)
+async def approval_queue(
+    session: SessionDep,
+    user_id: CurrentUserId,
+    user_payload: CurrentUserPayload,
+    tab: str = Query(default="mine"),
+    target_kind: str | None = Query(default=None),
+    project_id: uuid.UUID | None = Query(default=None),
+    q: str | None = Query(default=None, max_length=200),
+    limit: int = Query(default=200, ge=1, le=500),
+) -> dict:
+    """The caller's approval queue: rows for ``tab`` and a count per tab.
+
+    Tabs: ``mine`` (waiting for me), ``waiting`` (held by someone else),
+    ``submitted`` (I sent it), ``history`` (I decided on it).
+    """
+    from app.modules.approval_routes.queue import build_queue  # noqa: PLC0415
+
+    return await build_queue(
+        session,
+        user_id=user_id,
+        caller_role=user_payload.get("role"),
+        accessible_project_ids=await _scope_ids(session, user_id),
+        tab=tab,
+        target_kind=target_kind,
+        project_id=project_id,
+        q=q,
+        limit=limit,
+    )
+
+
+@router.post(
+    "/queue/decide",
+    dependencies=[Depends(RequirePermission("approval_routes.decide"))],
+)
+async def approval_queue_decide(
+    payload: QueueDecision,
+    session: SessionDep,
+    user_id: CurrentUserId,
+    user_payload: CurrentUserPayload,
+) -> dict:
+    """Approve or reject the current step of one or many instances.
+
+    A rejection needs a reason (422 without one). Results come back per
+    instance; one that fails (already decided, not yours) does not undo the rest.
+    """
+    from app.modules.approval_routes.queue import decide_many  # noqa: PLC0415
+
+    results = await decide_many(
+        session,
+        instance_ids=payload.instance_ids,
+        decision=payload.decision,
+        comment=payload.comment,
+        user_id=user_id,
+        caller_role=user_payload.get("role"),
+        accessible_project_ids=await _scope_ids(session, user_id),
+    )
+    return {"results": results, "ok": sum(1 for r in results if r["ok"]), "failed": sum(1 for r in results if not r["ok"])}
+
+
+@router.post(
+    "/queue/submit",
+    response_model=InstanceResponse,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(RequirePermission("approval_routes.write"))],
+)
+async def approval_queue_submit(
+    payload: QueueSubmit,
+    session: SessionDep,
+    user_id: CurrentUserId,
+    service: ApprovalRouteService = Depends(_get_service),
+) -> InstanceResponse:
+    """Send a document for approval ("ส่งอนุมัติ") on its project's route.
+
+    409 ``no_route`` when no active route exists for this document type yet.
+    """
+    from app.modules.approval_routes.queue import submit_for_approval  # noqa: PLC0415
+
+    instance = await submit_for_approval(
+        session,
+        target_kind=payload.target_kind,
+        target_id=payload.target_id,
+        route_id=payload.route_id,
+        user_id=user_id,
+        accessible_project_ids=await _scope_ids(session, user_id),
+    )
+    return await _instance_to_response(instance, service)
