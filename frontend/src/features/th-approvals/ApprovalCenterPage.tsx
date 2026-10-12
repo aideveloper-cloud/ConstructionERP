@@ -83,6 +83,7 @@ function useLabels() {
 }
 
 const KIND_TONE: Record<string, string> = {
+  purchase_requisition: 'bg-[#e6f7f9] text-[#0e7490]',
   purchase_order: 'bg-[#eaf2ff] text-[#2563d9]',
   change_order: 'bg-[#fff4e5] text-[#b45309]',
   progress_claim: 'bg-[#e8f8ef] text-[#15803d]',
@@ -127,7 +128,7 @@ export function ApprovalCenterPage() {
     return [...m.entries()];
   }, [items, projectId]);
   const labels = useLabels();
-  const kindOptions = ['purchase_order', 'change_order', 'progress_claim', 'invoice', 'contract'];
+  const kindOptions = ['purchase_requisition', 'purchase_order', 'change_order', 'progress_claim', 'invoice', 'contract'];
   const isAdmin = normalizeRole(useAuthStore((s) => s.userRole)) === 'admin';
 
   const setTab = (next: ApprovalTab) => {

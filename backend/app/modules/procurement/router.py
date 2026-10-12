@@ -61,6 +61,12 @@ from app.modules.procurement.service import ProcurementService, _validate_3way_m
 
 router = APIRouter(tags=["procurement"])
 
+# Purchase requisitions (ใบขอซื้อ). Included first so "/requisitions/..." is
+# matched before the parametric "/{po_id}" routes below.
+from app.modules.procurement.requisitions_router import router as _requisitions_router  # noqa: E402
+
+router.include_router(_requisitions_router)
+
 
 def _get_service(session: SessionDep) -> ProcurementService:
     return ProcurementService(session)

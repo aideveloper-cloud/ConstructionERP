@@ -478,6 +478,11 @@ export function ProcurementPage() {
         })}
         actions={
           <>
+            {ROUTED_PO_APPROVAL && (
+              <Button variant="secondary" size="sm" icon={<ClipboardCheck size={14} />} onClick={() => navigate('/requisitions')}>
+                {t('th_ui.pr.title', { defaultValue: 'ใบขอซื้อ (PR)' })}
+              </Button>
+            )}
             <InsightsToggleButton open={insights.open} onClick={insights.toggle} />
             <ModuleGuideButton content={procurementGuide} />
           </>

@@ -65,6 +65,8 @@ TARGET_KINDS: tuple[str, ...] = (
     # Thai edition: milestone/progress billing (งวดงาน) goes through the
     # approval center like any other money document.
     "progress_claim",
+    # Thai edition: purchase requisition (ใบขอซื้อ, PR).
+    "purchase_requisition",
 )
 
 # Aggregation mode at a single step when the approver_role expands to

@@ -90,6 +90,29 @@ async def _purchase_orders(session: AsyncSession, ids: list[uuid.UUID]) -> dict[
     }
 
 
+async def _requisitions(session: AsyncSession, ids: list[uuid.UUID]) -> dict[uuid.UUID, TargetSummary]:
+    from app.modules.procurement.models import MaterialRequisition  # noqa: PLC0415
+
+    rows = (await session.execute(select(MaterialRequisition).where(MaterialRequisition.id.in_(ids)))).scalars().all()
+    out: dict[uuid.UUID, TargetSummary] = {}
+    for r in rows:
+        items = list(r.items or [])
+        out[r.id] = TargetSummary(
+            kind="purchase_requisition",
+            id=r.id,
+            code=r.req_number,
+            title=r.title,
+            amount=sum((_dec(i.extended_cost) or Decimal("0") for i in items), Decimal("0")),
+            currency=(items[0].currency_code if items else None) or None,
+            project_id=r.project_id,
+            doc_date=r.created_at.date().isoformat() if r.created_at else None,
+            status=r.status,
+            created_by=r.requester_id,
+            url=f"/requisitions/{r.id}",
+        )
+    return out
+
+
 async def _change_orders(session: AsyncSession, ids: list[uuid.UUID]) -> dict[uuid.UUID, TargetSummary]:
     from app.modules.changeorders.models import ChangeOrder  # noqa: PLC0415
 
@@ -223,6 +246,7 @@ async def _submittals(session: AsyncSession, ids: list[uuid.UUID]) -> dict[uuid.
 
 READERS: dict[str, Reader] = {
     "purchase_order": _purchase_orders,
+    "purchase_requisition": _requisitions,
     "change_order": _change_orders,
     "invoice": _invoices,
     "contract": _contracts,

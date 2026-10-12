@@ -45,7 +45,7 @@ export const THAI_NAV: ThaiNavItem[] = [
   { key: 'overview', to: '/dashboard', icon: LayoutDashboard, also: ['/dashboards'] },
   { key: 'projects', to: '/projects', icon: FolderKanban },
   { key: 'planning', to: '/schedule', icon: CalendarClock, also: ['/schedule-advanced', '/progress', '/daily-diary', '/field-reports', '/tasks'] },
-  { key: 'procurement', to: '/procurement', icon: ShoppingCart, also: ['/supplier-catalogs', '/rfq-bidding'] },
+  { key: 'procurement', to: '/procurement', icon: ShoppingCart, also: ['/requisitions', '/supplier-catalogs', '/rfq-bidding'] },
   { key: 'inventory', to: '/site-inventory', icon: Boxes },
   { key: 'finance', to: '/finance', icon: Banknote },
   { key: 'billing', to: '/contracts', icon: Receipt, also: ['/subcontractors', '/changeorders', '/variations'] },

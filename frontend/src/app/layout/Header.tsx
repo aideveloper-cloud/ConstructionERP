@@ -271,6 +271,7 @@ export const TITLE_I18N_MAP: Record<string, string> = {
   // Communication & documentation
   'Inbox': 'inbox.title',
   'Approvals': 'th_ui.approvals.title',
+  'Purchase Requisitions': 'th_ui.pr.title',
   'Approval Routes': 'approvalRoutes.title',
   'Timeline': 'nav.timeline',
   'Project Timeline': 'nav.timeline',

@@ -66,6 +66,12 @@ const NlRuleBuilderPanel = lazy(() =>
 const ApprovalCenterPage = lazy(() =>
   import('@/features/th-approvals/ApprovalCenterPage').then((m) => ({ default: m.ApprovalCenterPage })),
 );
+const RequisitionListPage = lazy(() =>
+  import('@/features/th-requisitions/RequisitionListPage').then((m) => ({ default: m.RequisitionListPage })),
+);
+const RequisitionDocPage = lazy(() =>
+  import('@/features/th-requisitions/RequisitionDocPage').then((m) => ({ default: m.RequisitionDocPage })),
+);
 const ApprovalRoutesPage = lazy(() =>
   import('@/features/approval-routes/ApprovalRoutesPage').then((m) => ({ default: m.ApprovalRoutesPage })),
 );
@@ -1363,6 +1369,8 @@ export default function App() {
 
         <Route path="/inbox" element={<P title="Inbox"><InboxPage /></P>} />
         <Route path="/approvals" element={<P title="Approvals"><ApprovalCenterPage /></P>} />
+        <Route path="/requisitions" element={<P title="Purchase Requisitions"><RequisitionListPage /></P>} />
+        <Route path="/requisitions/:reqId" element={<P title="Purchase Requisitions"><RequisitionDocPage /></P>} />
         <Route path="/timeline" element={<P title="Timeline"><TimelinePage /></P>} />
         <Route path="/dashboards" element={<P title="Dashboards"><SnapshotsPage /></P>} />
         <Route path="/projects/:projectId/dashboards" element={<P title="Dashboards"><SnapshotsPage /></P>} />

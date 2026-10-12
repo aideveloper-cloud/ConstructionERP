@@ -710,3 +710,139 @@ class CommittedByPositionListResponse(BaseModel):
     total: int
     offset: int = 0
     limit: int = 100
+
+
+# ── Purchase requisitions (ใบขอซื้อ, Thai edition) ────────────────────────────
+
+
+class RequisitionItemIn(BaseModel):
+    """One line of a purchase requisition.
+
+    Either picked from the bill (``boq_position_id``, resolved to the cost line
+    on write exactly like a PO line) or typed for material outside the bill.
+    ``unit_cost`` is the requester's estimate; the buyer sets the real price on
+    the purchase order.
+    """
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    description: str = Field(..., min_length=1, max_length=500)
+    unit: str | None = Field(default=None, max_length=20)
+    quantity_requested: str = Field(..., max_length=50)
+    unit_cost: str = Field(default="0", max_length=50)
+    boq_position_id: str | None = Field(default=None, max_length=36)
+    cost_line_id: str | None = Field(default=None, max_length=36)
+
+    @field_validator("quantity_requested", "unit_cost")
+    @classmethod
+    def _check_non_negative(cls, v: str) -> str:
+        return _validate_non_negative_decimal(v)
+
+    @field_validator("quantity_requested")
+    @classmethod
+    def _check_positive_quantity(cls, v: str) -> str:
+        if Decimal(v) <= 0:
+            raise ValueError("Quantity must be more than zero")
+        return v
+
+
+class RequisitionCreate(BaseModel):
+    """Create a purchase requisition (draft)."""
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    project_id: UUID
+    title: str = Field(..., min_length=1, max_length=500)
+    required_date: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$", max_length=20)
+    delivery_location: str | None = Field(default=None, max_length=300)
+    notes: str | None = Field(default=None, max_length=5000)
+    items: list[RequisitionItemIn] = Field(..., min_length=1, max_length=200)
+
+
+class RequisitionUpdate(BaseModel):
+    """Edit a draft requisition. ``items`` replaces every line when given."""
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    title: str | None = Field(default=None, min_length=1, max_length=500)
+    required_date: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$", max_length=20)
+    delivery_location: str | None = Field(default=None, max_length=300)
+    notes: str | None = Field(default=None, max_length=5000)
+    items: list[RequisitionItemIn] | None = Field(default=None, min_length=1, max_length=200)
+
+
+class RequisitionItemOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    description: str
+    unit: str | None
+    quantity_requested: str
+    quantity_ordered: str
+    quantity_received: str
+    unit_cost: Decimal
+    extended_cost: Decimal
+    cost_line_id: UUID | None
+    sort_order: int
+
+
+class RequisitionPOLink(BaseModel):
+    id: UUID
+    po_number: str
+    status: str
+    amount_total: str
+    vendor_name: str | None = None
+
+
+class RequisitionOut(BaseModel):
+    id: UUID
+    project_id: UUID
+    req_number: str | None
+    title: str | None
+    status: str
+    required_date: str | None
+    delivery_location: str | None = None
+    notes: str | None
+    requester_id: str | None
+    requester_name: str | None = None
+    approver_id: str | None
+    total: str
+    currency: str | None = None
+    items: list[RequisitionItemOut] = Field(default_factory=list)
+    po: RequisitionPOLink | None = None
+    # Latest approval-chain state, so the screen can show "rejected: reason".
+    approval_status: str | None = None
+    rejection_reason: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class RequisitionListResponse(BaseModel):
+    items: list[RequisitionOut]
+    total: int
+
+
+class RequisitionToPOLine(BaseModel):
+    """Price (and optionally quantity) the buyer sets for one PR line."""
+
+    item_id: UUID
+    unit_rate: str = Field(..., max_length=50)
+    quantity: str | None = Field(default=None, max_length=50)
+
+    @field_validator("unit_rate")
+    @classmethod
+    def _check_rate(cls, v: str) -> str:
+        return _validate_non_negative_decimal(v)
+
+
+class RequisitionToPO(BaseModel):
+    """Turn an approved requisition into a draft purchase order."""
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    vendor_contact_id: str = Field(..., min_length=1, max_length=36)
+    issue_date: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$", max_length=20)
+    delivery_date: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$", max_length=20)
+    payment_terms: str | None = Field(default=None, max_length=100)
+    # Omitted lines keep the requester's estimate as the price.
+    lines: list[RequisitionToPOLine] = Field(default_factory=list)

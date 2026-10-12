@@ -19,6 +19,14 @@ import httpx
 
 ROUTES = [
     {
+        "name": "อนุมัติใบขอซื้อ (PR)",
+        "target_kind": "purchase_requisition",
+        "steps": [
+            {"ordinal": 1, "approver_role": "manager", "mode": "any", "sla_hours": 24},
+            {"ordinal": 2, "approver_role": "admin", "mode": "any", "sla_hours": 48, "min_amount": "100000"},
+        ],
+    },
+    {
         "name": "อนุมัติใบสั่งซื้อ (PO)",
         "target_kind": "purchase_order",
         "steps": [
