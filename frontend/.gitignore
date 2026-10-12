@@ -1,0 +1,4 @@
+
+# Thai edition e2e: saved login session and report
+tests/e2e-th/.auth/
+qa-report-th/

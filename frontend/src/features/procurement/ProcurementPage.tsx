@@ -64,7 +64,7 @@ import { RelatedRecordLink } from '@/shared/ui/RelatedRecordLink';
 import { SHOW_UPSTREAM_EXTRAS } from '@/app/thai/flags';
 import { submitForApproval, APPROVAL_QUEUE_ROOT } from '@/features/th-approvals/api';
 import { INBOX_QUERY_ROOT } from '@/features/inbox/useInbox';
-import { computeVat, THAI_VAT_RATE, type VatMode } from '@/app/thai/vat';
+import { computeVat, computeWht, THAI_VAT_RATE, WHT_RATES, type VatMode, type WhtType } from '@/app/thai/vat';
 import { bahtText } from '@/app/thai/bahtText';
 
 /** ฉบับไทย: PO ร่างต้อง "ส่งอนุมัติ" เข้าสายอนุมัติ แทนการกดอนุมัติเองตรงๆ */
@@ -161,6 +161,7 @@ interface POItemResponse {
   // bill, and for one whose cost line came from no position.
   boq_position_id: string | null;
   sort_order: number;
+  wht_applies?: boolean | null;
 }
 
 /** Full PO detail returned by GET /v1/procurement/{po_id} (includes line items
@@ -180,6 +181,8 @@ interface POResponse {
   /** Thai VAT: how prices were entered; null on orders from before VAT modes. */
   vat_mode?: VatMode | null;
   vat_rate?: string | null;
+  wht_type?: WhtType | null;
+  wht_rate?: string | null;
   status: string;
   payment_terms: string | null;
   notes: string | null;
@@ -218,6 +221,8 @@ interface POLineItemForm {
    * this form. See `backend/app/modules/procurement/cost_spine.py`.
    */
   boq_position_id: string | null;
+  /** Thai withholding tax: a service / labour line (materials are not). */
+  wht?: boolean;
 }
 
 /** The purchase-order fields the shared create / edit modal holds. */
@@ -268,6 +273,7 @@ function poFormFromResponse(po: POResponse, projectCurrency: string): POFormStat
             // quietly send the line back unattributed. The picker resolves the
             // id to a readable position even when it sorts past the first page.
             boq_position_id: it.boq_position_id ?? null,
+            wht: !!it.wht_applies,
           }))
         : [{ description: '', quantity: '1', unit: '', unit_rate: '', amount: '', boq_position_id: null }],
   };
@@ -693,6 +699,8 @@ function PurchaseOrdersTab({
     tax: string;
     vatMode: VatMode | null;
     vatRate: string;
+    whtType: WhtType | '';
+    whtRate: string;
   } | null>(null);
   const [poErrors, setPoErrors] = useState<Record<string, string>>({});
   const [poTaxInput, setPoTaxInput] = useState('0');
@@ -701,6 +709,9 @@ function PurchaseOrdersTab({
   const defaultVatMode: VatMode | null = ROUTED_PO_APPROVAL ? 'exclusive' : null;
   const [poVatMode, setPoVatMode] = useState<VatMode | null>(defaultVatMode);
   const [poVatRate, setPoVatRate] = useState(String(THAI_VAT_RATE));
+  // Thai withholding tax: income type ('' = none) and its rate.
+  const [poWhtType, setPoWhtType] = useState<WhtType | ''>('');
+  const [poWhtRate, setPoWhtRate] = useState('');
   const firstFieldRef = useRef<HTMLDivElement>(null);
 
   const emptyPoForm = {
@@ -728,6 +739,8 @@ function PurchaseOrdersTab({
     setPoTaxInput('0');
     setPoVatMode(defaultVatMode);
     setPoVatRate(String(THAI_VAT_RATE));
+    setPoWhtType('');
+    setPoWhtRate('');
     setPoErrors({});
   };
 
@@ -800,6 +813,14 @@ function PurchaseOrdersTab({
   // same way (computeVat mirrors it); without one the tax is typed in.
   const vatCalc = poVatMode ? computeVat(poSubtotal, poVatMode, Number(poVatRate)) : null;
   const poTotal = vatCalc ? vatCalc.total : poSubtotal + parseFloat(poTaxInput || '0');
+  const whtCalc = poWhtType
+    ? computeWht(
+        poForm.items.filter((li) => li.wht).reduce((s, li) => s + parseFloat(li.amount || '0'), 0),
+        poVatMode,
+        Number(poVatRate),
+        Number(poWhtRate),
+      )
+    : null;
   // What to show as the amount prefix in the modal - the chosen currency,
   // else the resolved project currency, else a neutral label (never EUR).
   const displayCurrency =
@@ -847,6 +868,7 @@ function PurchaseOrdersTab({
         tax_amount: vatCalc ? vatCalc.vat.toFixed(2) : poTaxInput || '0',
         amount_total: String(poTotal.toFixed(2)),
         ...(poVatMode ? { vat_mode: poVatMode, vat_rate: poVatRate || '0' } : {}),
+        ...(poWhtType ? { wht_type: poWhtType, wht_rate: poWhtRate || '0' } : {}),
         payment_terms: `Net ${data.payment_terms}`,
         notes: data.notes || undefined,
         status: 'draft',
@@ -862,6 +884,7 @@ function PurchaseOrdersTab({
             // the field is optional on POItemCreate and an absent one reads the
             // same as an unlinked line without asking the server to resolve it.
             boq_position_id: li.boq_position_id || undefined,
+            wht_applies: !!li.wht,
             sort_order: idx,
           })),
       }),
@@ -919,6 +942,7 @@ function PurchaseOrdersTab({
             amount: li.amount || '0',
             unit_rate: li.unit_rate || '0',
             boq_position_id: li.boq_position_id || undefined,
+            wht_applies: !!li.wht,
             sort_order: idx,
           }));
         body.amount_subtotal = String(poSubtotal.toFixed(2));
@@ -927,6 +951,10 @@ function PurchaseOrdersTab({
       if (vatChanged && poVatMode) {
         body.vat_mode = poVatMode;
         body.vat_rate = poVatRate || '0';
+      }
+      if (poWhtType !== (poBase?.whtType ?? poWhtType) || poWhtRate !== (poBase?.whtRate ?? poWhtRate)) {
+        body.wht_type = poWhtType; // '' clears it
+        if (poWhtType) body.wht_rate = poWhtRate || '0';
       }
       // The total is the sum of the two, so it moves whenever either does.
       if (itemsChanged || taxChanged) body.amount_total = String(poTotal.toFixed(2));
@@ -954,10 +982,14 @@ function PurchaseOrdersTab({
       const vatMode = po.vat_mode ?? null;
       const vatRate = po.vat_rate != null ? String(Number(po.vat_rate)) : String(THAI_VAT_RATE);
       setPoForm(seeded);
-      setPoBase({ form: seeded, tax, vatMode, vatRate });
+      const whtType: WhtType | '' = po.wht_type ?? '';
+      const whtRate = po.wht_rate != null ? String(Number(po.wht_rate)) : '';
+      setPoBase({ form: seeded, tax, vatMode, vatRate, whtType, whtRate });
       setPoTaxInput(tax);
       setPoVatMode(vatMode);
       setPoVatRate(vatRate);
+      setPoWhtType(whtType);
+      setPoWhtRate(whtRate);
       setPoErrors({});
       setEditingPO(po.id);
       setEditingPOStatus(po.status);
@@ -1361,6 +1393,23 @@ function PurchaseOrdersTab({
                         line={idx + 1}
                         disabled={figuresLocked}
                       />
+                      {poWhtType && (
+                        <label className="inline-flex cursor-pointer items-center gap-1.5 text-2xs text-content-secondary">
+                          <input
+                            type="checkbox"
+                            checked={!!li.wht}
+                            disabled={figuresLocked}
+                            onChange={(e) =>
+                              setPoForm((prev) => ({
+                                ...prev,
+                                items: prev.items.map((x, i) => (i === idx ? { ...x, wht: e.target.checked } : x)),
+                              }))
+                            }
+                            className="h-3.5 w-3.5 accent-[var(--oe-blue)]"
+                          />
+                          {t('th_ui.wht.line_flag', { defaultValue: 'หัก ณ ที่จ่าย (ค่าแรง/ค่าบริการ)' })}
+                        </label>
+                      )}
                     </div>
                     <input
                       type="number"
@@ -1494,6 +1543,74 @@ function PurchaseOrdersTab({
                     <p className="mt-0.5 text-right text-2xs text-content-tertiary">({bahtText(vatCalc.total)})</p>
                   )}
                 </div>
+                {/* Thai withholding tax (หัก ณ ที่จ่าย) */}
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-1 text-sm">
+                  <span className="text-content-secondary">{t('th_ui.wht.label', { defaultValue: 'หัก ณ ที่จ่าย' })}</span>
+                  <div className="flex items-center gap-2">
+                    <select
+                      value={poWhtType}
+                      disabled={figuresLocked}
+                      onChange={(e) => {
+                        const next = e.target.value as WhtType | '';
+                        setPoWhtType(next);
+                        setPoWhtRate(next ? String(WHT_RATES[next]) : '');
+                      }}
+                      aria-label={t('th_ui.wht.label', { defaultValue: 'หัก ณ ที่จ่าย' })}
+                      className={clsx(inputCls, 'h-8 w-auto text-xs')}
+                    >
+                      <option value="">{t('th_ui.wht.none', { defaultValue: 'ไม่หัก' })}</option>
+                      {(Object.keys(WHT_RATES) as WhtType[]).map((k) => (
+                        <option key={k} value={k}>
+                          {t(`th_ui.wht.type.${k}`)} {WHT_RATES[k]}%
+                        </option>
+                      ))}
+                    </select>
+                    {poWhtType && (
+                      <div className="relative w-24">
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          value={poWhtRate}
+                          disabled={figuresLocked}
+                          onChange={(e) => setPoWhtRate(e.target.value)}
+                          aria-label={t('th_ui.wht.rate', { defaultValue: 'อัตราหัก ณ ที่จ่าย (%)' })}
+                          className={clsx(inputCls, 'h-8 pl-2 pr-7 text-right text-xs tabular-nums')}
+                        />
+                        <span className="pointer-events-none absolute inset-y-0 right-2 flex items-center text-2xs text-content-tertiary">%</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+                {whtCalc && (
+                  <>
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-content-secondary">
+                        {t('th_ui.wht.amount', {
+                          defaultValue: 'หัก ณ ที่จ่าย {{rate}}% (ฐาน {{base}})',
+                          rate: poWhtRate || '0',
+                          base: fmtFixed(whtCalc.base, 2),
+                        })}
+                      </span>
+                      <span className="tabular-nums font-medium text-semantic-error">− {displayCurrency} {fmtFixed(whtCalc.wht, 2)}</span>
+                    </div>
+                    {whtCalc.base === 0 && (
+                      <p className="text-2xs text-amber-600">
+                        {t('th_ui.wht.no_lines', { defaultValue: 'ยังไม่ได้ติ๊กบรรทัดที่เป็นค่าแรง/ค่าบริการ' })}
+                      </p>
+                    )}
+                    <div className="flex items-center justify-between rounded-lg border border-border-light px-3 py-2">
+                      <span className="text-sm font-semibold text-content-primary">{t('th_ui.wht.net_payable', { defaultValue: 'ยอดชำระสุทธิให้ผู้ขาย' })}</span>
+                      <span className="text-base font-bold tabular-nums text-content-primary">
+                        {displayCurrency} {fmtFixed(vatCalc.total - whtCalc.wht, 2)}
+                      </span>
+                    </div>
+                    <p className="text-2xs text-content-tertiary">
+                      {t('th_ui.wht.form_hint', {
+                        defaultValue: 'นำส่งด้วย ภ.ง.ด.53 ถ้าผู้ขายเป็นนิติบุคคล หรือ ภ.ง.ด.3 ถ้าเป็นบุคคลธรรมดา',
+                      })}
+                    </p>
+                  </>
+                )}
               </div>
               ) : (
               <div className="mt-4 space-y-2">

@@ -2,7 +2,10 @@
    โหลดต่อจาก index.css เพื่อ override token เดิม โดยไม่แก้ไฟล์ต้นฉบับ
    (ธีมมืดยังใช้ token ของ .dark ใน index.css ตามเดิม) */
 
-:root {
+/* สีของธีมสว่างเท่านั้น: ต้องไม่ทับ token ของ .dark ใน index.css
+   (:root กับ .dark น้ำหนัก CSS เท่ากัน ไฟล์นี้โหลดทีหลังจึงเคยชนะ ทำให้ธีมมืด
+   ได้ตัวอักษรสีเข้มบนพื้นเข้ม) */
+:root:not(.dark) {
   /* สีหลัก */
   --oe-blue: #3278f6;
   --oe-blue-hover: #2f6fe3;
@@ -23,8 +26,8 @@
   --oe-border-light: #e5ebf3;
   --oe-text-primary: #17263e;
   --oe-text-secondary: #40516a;
-  --oe-text-tertiary: #607087;
-  --oe-text-quaternary: #718096;
+  --oe-text-tertiary: #546378;
+  --oe-text-quaternary: #5f6e84; /* ≥ 4.5:1 on white and on #f5f7fb (WCAG AA) */
 
   /* สถานะ */
   --oe-success: #118259;
@@ -33,7 +36,10 @@
   --oe-warning-bg: #fff4dc;
   --oe-error: #bd4242;
   --oe-error-bg: #ffeded;
+}
 
+/* ค่าที่ไม่ใช่สี ใช้ทั้งสองธีม */
+:root {
   /* ฟอนต์: Inter สำหรับตัวเลข/อังกฤษ + Noto Sans Thai สำหรับภาษาไทย (bundle ในแอป ไม่โหลดจากเน็ต) */
   --oe-font-sans: 'Inter', 'Noto Sans Thai', 'Leelawadee UI', system-ui, -apple-system, 'Segoe UI', sans-serif;
 
@@ -95,3 +101,34 @@ table th {
 .dark .th-header {
   background: rgb(var(--oe-bg-ch));
 }
+
+/* ===== ธีมมืด: สีตายตัวในหน้าฉบับไทย =====
+   หน้าศูนย์อนุมัติ ใบขอซื้อ ภาพรวม ฯลฯ ใช้สีป้ายสถานะแบบตายตัว (พื้นพาสเทล + ตัวอักษรเข้ม)
+   ที่อ่านดีบนพื้นขาวแต่จ้า/จมในธีมมืด ที่นี่แปลงเป็นพื้นโปร่งแสง + ตัวอักษรสว่างที่เดียว
+   (เมนูซ้ายและหน้าเข้าสู่ระบบเป็นพื้นกรมท่าเสมอ จึงไม่อยู่ในรายการนี้) */
+
+/* พื้นแดง / เขียว / เหลือง / ฟ้า / ม่วง / ฟ้าอมเขียว / เทา */
+.dark .bg-\[\#fef2f2\], .dark .bg-\[\#ffeded\], .dark .hover\:bg-\[\#fef2f2\]:hover { background-color: rgba(239, 68, 68, 0.14); }
+.dark .bg-\[\#e8f8ef\], .dark .bg-\[\#f0fdf4\], .dark .bg-\[\#e3f7ee\], .dark .bg-\[\#e5f7ef\] { background-color: rgba(34, 197, 94, 0.14); }
+.dark .bg-\[\#fff7e6\], .dark .bg-\[\#fff4dc\], .dark .bg-\[\#fff2df\], .dark .bg-\[\#fff1e7\], .dark .bg-\[\#fff4e5\] { background-color: rgba(245, 158, 11, 0.15); }
+.dark .bg-\[\#eaf2ff\], .dark .bg-\[\#e9f1ff\], .dark .bg-\[\#dbe7fb\], .dark .bg-\[\#dce8ff\] { background-color: rgba(59, 130, 246, 0.18); }
+.dark .bg-\[\#f1eaff\], .dark .bg-\[\#f3ecff\] { background-color: rgba(168, 85, 247, 0.16); }
+.dark .bg-\[\#e6f7f9\] { background-color: rgba(6, 182, 212, 0.16); }
+.dark .bg-\[\#eef1f5\], .dark .bg-\[\#e8edf5\], .dark .bg-\[\#eef2f7\] { background-color: var(--oe-bg-tertiary); }
+.dark .bg-\[\#f6f8fc\], .dark .hover\:bg-\[\#fafcff\]:hover { background-color: var(--oe-bg-secondary); }
+
+/* ตัวอักษร */
+.dark .text-\[\#dc2626\], .dark .text-\[\#bd4242\], .dark .text-\[\#b91c1c\], .dark .hover\:text-\[\#dc2626\]:hover { color: #f87171; }
+.dark .text-\[\#991b1b\] { color: #fca5a5; }
+.dark .text-\[\#b91c1c\]\/70 { color: rgba(252, 165, 165, 0.75); }
+.dark .text-\[\#15803d\], .dark .text-\[\#118259\], .dark .text-\[\#16986a\], .dark .text-\[\#16a34a\] { color: #4ade80; }
+.dark .text-\[\#b45309\], .dark .text-\[\#9b6a12\], .dark .text-\[\#c87828\], .dark .text-\[\#c7831c\] { color: #fbbf24; }
+.dark .text-\[\#2563d9\], .dark .text-\[\#2868d7\], .dark .text-\[\#2856a6\] { color: #93c5fd; }
+.dark .text-\[\#7c3aed\], .dark .text-\[\#8456d9\] { color: #d8b4fe; }
+.dark .text-\[\#0e7490\] { color: #67e8f9; }
+.dark .text-\[\#334155\], .dark .text-\[\#5b6c83\], .dark .text-\[\#66758b\] { color: var(--oe-text-secondary); }
+
+/* เส้นขอบ */
+.dark .border-\[\#fecaca\] { border-color: rgba(248, 113, 113, 0.35); }
+.dark .border-\[\#bbf7d0\] { border-color: rgba(74, 222, 128, 0.35); }
+.dark .border-\[\#edf1f6\] { border-color: var(--oe-border-light); }

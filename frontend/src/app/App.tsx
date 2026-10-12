@@ -1706,7 +1706,7 @@ export default function App() {
         {/* `/dashboard` renders DashboardPage directly. The earlier alias
             redirected to `/`, but BUG-215 made `/` redirect authed users to
             `/projects`, leaving DashboardPage unreachable. */}
-        <Route path="/dashboard" element={<P title="Dashboard">{SHOW_UPSTREAM_EXTRAS ? <DashboardPage /> : <ThaiOverviewPage />}</P>} />
+        <Route path="/dashboard" element={SHOW_UPSTREAM_EXTRAS ? <P title="Dashboard"><DashboardPage /></P> : <P title="Business Overview"><ThaiOverviewPage /></P>} />
         <Route path="/dashboard/classic" element={<P title="Dashboard"><DashboardPage /></P>} />
         <Route path="/change-orders" element={<Navigate to="/changeorders" replace />} />
         <Route path="/punch-list" element={<Navigate to="/punchlist" replace />} />

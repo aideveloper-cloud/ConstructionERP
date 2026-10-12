@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { computeVat } from './vat';
+import { computeVat, computeWht } from './vat';
 
 describe('computeVat (matches backend compute_vat)', () => {
   it('adds 7% on top of a price before VAT', () => {
@@ -20,5 +20,17 @@ describe('computeVat (matches backend compute_vat)', () => {
   });
   it('charges nothing when exempt', () => {
     expect(computeVat(1000, 'none', 7)).toEqual({ net: 1000, vat: 0, total: 1000 });
+  });
+});
+
+describe('computeWht (matches backend compute_wht)', () => {
+  it('takes 3% of the flagged lines', () => {
+    expect(computeWht(40000, 'exclusive', 7, 3)).toEqual({ base: 40000, wht: 1200 });
+  });
+  it('brings VAT-inclusive lines back to net first', () => {
+    expect(computeWht(42800, 'inclusive', 7, 3)).toEqual({ base: 40000, wht: 1200 });
+  });
+  it('withholds nothing at a zero rate', () => {
+    expect(computeWht(1000, 'exclusive', 7, 0)).toEqual({ base: 1000, wht: 0 });
   });
 });

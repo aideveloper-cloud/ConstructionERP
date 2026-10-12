@@ -78,6 +78,18 @@ class PurchaseOrder(Base):
     # amount_subtotal ends up net of VAT, the basis the budget commits on.
     vat_mode: Mapped[str | None] = mapped_column(String(16), nullable=True)
     vat_rate: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    # Thai withholding tax (หัก ณ ที่จ่าย). The payer deducts it from the
+    # payment and remits it on ภ.ง.ด.3 / 53. ``wht_type`` names the income
+    # type (service, hire_of_work, transport, rent, advertising,
+    # professional), ``wht_rate`` its percent. The base is the lines flagged
+    # ``wht_applies``, net of VAT; ``wht_base`` / ``wht_amount`` are written
+    # by the service with the VAT split. It does not touch amount_subtotal:
+    # the budget commits the full cost, WHT is part of what is paid, just to
+    # the Revenue Department instead of the vendor.
+    wht_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    wht_rate: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    wht_base: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    wht_amount: Mapped[str | None] = mapped_column(String(50), nullable=True)
     # ── Retainage (Gap F, v6.x) ──────────────────────────────────────────
     # Retention withheld on a PO commitment. ``retention_percent`` is the
     # agreed retainage rate (e.g. 5.00 for 5%); ``retainage_amount`` is
@@ -186,6 +198,9 @@ class PurchaseOrderItem(Base):
     # Additive nullable link to the cost line this PO item commits against.
     cost_line_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), nullable=True, index=True)
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # This line is a service / labour line subject to the order's withholding
+    # tax (materials are not). NULL = false.
+    wht_applies: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
 
     # Relationship
     purchase_order: Mapped["PurchaseOrder"] = relationship(back_populates="items")

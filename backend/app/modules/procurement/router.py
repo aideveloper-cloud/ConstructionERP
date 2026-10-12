@@ -111,13 +111,31 @@ async def _fetch_line_positions(session: AsyncSession, pos: Iterable[PurchaseOrd
     return await positions_for_cost_lines(session, [item.cost_line_id for po in pos for item in (po.items or [])])
 
 
+async def _fetch_vendor_kinds(session: AsyncSession, vendor_ids: Iterable[str | None]) -> dict[str, str]:
+    """``vendor_contact_id`` → party kind (natural_person / legal_entity)."""
+    ids = {vid for vid in vendor_ids if vid}
+    if not ids:
+        return {}
+    rows = (await session.execute(select(Contact.id, Contact.party_kind).where(Contact.id.in_(ids)))).all()
+    return {str(cid): kind for cid, kind in rows if kind}
+
+
 def _po_to_response(
     po: PurchaseOrder,
     vendor_names: dict[str, str],
     line_positions: dict[str, uuid.UUID],
     invoiced: dict[uuid.UUID, tuple[Decimal, int]] | None = None,
+    vendor_kinds: dict[str, str] | None = None,
 ) -> POResponse:
     resp = POResponse.model_validate(po)
+    # Thai withholding tax: which return it goes on, and what the vendor gets.
+    if po.wht_type and po.wht_amount is not None:
+        kind = (vendor_kinds or {}).get(po.vendor_contact_id or "")
+        resp.wht_form = {"natural_person": "PND3", "legal_entity": "PND53"}.get(kind or "")
+        try:
+            resp.net_payable = str(Decimal(str(po.amount_total)) - Decimal(str(po.wht_amount)))
+        except (InvalidOperation, ValueError):
+            resp.net_payable = None
     net, count = (invoiced or {}).get(po.id, (Decimal("0"), 0))
     resp.invoiced_net = str(net)
     resp.invoice_count = count
@@ -157,8 +175,9 @@ async def _po_response(session: AsyncSession, po: PurchaseOrder) -> POResponse:
     missing lookup. Keeping the pair in one place is what stops that.
     """
     vendor_names = await _fetch_vendor_names(session, [po.vendor_contact_id])
+    vendor_kinds = await _fetch_vendor_kinds(session, [po.vendor_contact_id])
     invoiced = await PurchaseOrderRepository(session).invoiced_net_by_po(po.project_id, [po])
-    return _po_to_response(po, vendor_names, await _fetch_line_positions(session, [po]), invoiced)
+    return _po_to_response(po, vendor_names, await _fetch_line_positions(session, [po]), invoiced, vendor_kinds)
 
 
 # ── Purchase Orders (list / create) ─────────────────────────────────────────
@@ -189,10 +208,11 @@ async def list_purchase_orders(
         limit=limit,
     )
     vendor_names = await _fetch_vendor_names(service.session, (po.vendor_contact_id for po in items))
+    vendor_kinds = await _fetch_vendor_kinds(service.session, (po.vendor_contact_id for po in items))
     line_positions = await _fetch_line_positions(service.session, items)
     invoiced = await service.po_repo.invoiced_net_by_po(project_id, items)
     return POListResponse(
-        items=[_po_to_response(po, vendor_names, line_positions, invoiced) for po in items],
+        items=[_po_to_response(po, vendor_names, line_positions, invoiced, vendor_kinds) for po in items],
         total=total,
         offset=offset,
         limit=limit,

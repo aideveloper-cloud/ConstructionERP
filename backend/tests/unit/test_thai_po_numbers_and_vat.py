@@ -59,3 +59,36 @@ def test_vat_mode_and_rate_are_validated():
         POUpdate(vat_rate="120")
     with pytest.raises(ValidationError):
         POUpdate(vat_rate="-1")
+
+
+# ── withholding tax (หัก ณ ที่จ่าย) ─────────────────────────────────────────
+
+from app.modules.procurement.schemas import WHT_TYPES  # noqa: E402
+from app.modules.procurement.service import compute_wht  # noqa: E402
+
+
+def test_wht_is_taken_on_the_flagged_lines_net_of_vat():
+    # labour 40,000 of a 140,000 order, 3% hire of work
+    assert compute_wht(D("40000"), "exclusive", D("7"), D("3")) == (D("40000.00"), D("1200.00"))
+    # the same labour entered VAT-inclusive is brought back to net first
+    assert compute_wht(D("42800"), "inclusive", D("7"), D("3")) == (D("40000.00"), D("1200.00"))
+
+
+def test_wht_rounds_to_satang_half_up():
+    assert compute_wht(D("333.33"), "exclusive", D("7"), D("3")) == (D("333.33"), D("10.00"))
+    assert compute_wht(D("150.50"), None, D("7"), D("1")) == (D("150.50"), D("1.51"))
+
+
+def test_usual_wht_rates_for_a_company_payee():
+    assert WHT_TYPES == {
+        "service": "3", "hire_of_work": "3", "professional": "3",
+        "transport": "1", "advertising": "2", "rent": "5",
+    }
+
+
+def test_wht_type_and_rate_are_validated():
+    with pytest.raises(ValidationError):
+        POCreate(project_id="00000000-0000-0000-0000-000000000001", wht_type="bribe")
+    with pytest.raises(ValidationError):
+        POUpdate(wht_rate="150")
+    assert POUpdate(wht_type="").wht_type == ""

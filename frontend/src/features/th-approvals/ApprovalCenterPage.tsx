@@ -340,7 +340,7 @@ function ApprovalCard({
   const overdue = item.status === 'pending' && sla != null && item.waiting_hours > sla;
 
   return (
-    <Card padding="none" className={clsx('overflow-hidden', selected && 'ring-2 ring-oe-blue/40')}>
+    <Card padding="none" data-testid="approval-card" className={clsx('overflow-hidden', selected && 'ring-2 ring-oe-blue/40')}>
       <div className="flex gap-3 px-4 pb-3 pt-3.5 sm:px-5">
         {tab === 'mine' && (
           <input

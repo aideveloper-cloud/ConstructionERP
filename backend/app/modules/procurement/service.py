@@ -51,6 +51,7 @@ from app.modules.procurement.repository import (
     PurchaseOrderRepository,
 )
 from app.modules.procurement.schemas import (
+    WHT_TYPES,
     GRCreate,
     POCreate,
     POItemCreate,
@@ -326,6 +327,26 @@ def compute_vat(lines_total: Decimal, mode: str | None, rate: Decimal) -> tuple[
     return gross, Decimal("0.00"), gross
 
 
+def compute_wht(
+    flagged_lines: Decimal,
+    vat_mode: str | None,
+    vat_rate: Decimal,
+    wht_rate: Decimal,
+) -> tuple[Decimal, Decimal]:
+    """Withholding tax on the flagged lines: (base net of VAT, tax).
+
+    The base is always before VAT, so VAT-inclusive line prices are brought
+    back to net first. Rounded to satang half up.
+    """
+    from decimal import ROUND_HALF_UP  # noqa: PLC0415
+
+    base = flagged_lines.quantize(_CENT, rounding=ROUND_HALF_UP)
+    if vat_mode == "inclusive" and vat_rate > 0:
+        base = (base * Decimal(100) / (Decimal(100) + vat_rate)).quantize(_CENT, rounding=ROUND_HALF_UP)
+    wht = (base * wht_rate / Decimal(100)).quantize(_CENT, rounding=ROUND_HALF_UP)
+    return base, wht
+
+
 def _compute_po_total(subtotal: str, tax: str) -> str:
     """Compute amount_total = amount_subtotal + tax_amount."""
     s = _parse_decimal(subtotal, "amount_subtotal")
@@ -506,6 +527,11 @@ def _frozen_po_changes(
         for name in ("amount_subtotal", "tax_amount", "amount_total")
     ):
         changed.append("amounts")
+    # Withholding tax fixes what the vendor is paid, so it freezes too.
+    if ("wht_type" in fields and (fields["wht_type"] or None) != po.wht_type) or (
+        "wht_rate" in fields and _cents(fields["wht_rate"]) != _cents(po.wht_rate)
+    ):
+        changed.append("withholding tax")
     # The VAT mode and rate decide the amounts, so they freeze with them.
     if ("vat_mode" in fields and fields["vat_mode"] != po.vat_mode) or (
         "vat_rate" in fields and _cents(fields["vat_rate"]) != _cents(po.vat_rate)
@@ -832,6 +858,7 @@ class ProcurementService:
                 cost_category=item_data.cost_category,
                 cost_line_id=item_cost_line_ids[idx],
                 sort_order=item_data.sort_order if item_data.sort_order else idx,
+                wht_applies=item_data.wht_applies or None,
             )
             await self.po_item_repo.create(item)
 
@@ -847,8 +874,9 @@ class ProcurementService:
             if reloaded is not None:
                 po = reloaded
 
-        # Thai VAT: split the lines into net / VAT / total for the order's mode.
-        if po.vat_mode:
+        # Thai VAT / WHT: split the lines into net / VAT / total and work out
+        # the withholding tax on the flagged lines.
+        if po.vat_mode or po.wht_type:
             po = await self._apply_vat(po.id)
 
         await _safe_publish(
@@ -922,6 +950,8 @@ class ProcurementService:
                 vat_rate=data.vat_rate
                 if data.vat_rate is not None
                 else (format(THAI_DEFAULT_VAT_RATE, "f") if data.vat_mode else None),
+                wht_type=data.wht_type,
+                wht_rate=(data.wht_rate or WHT_TYPES.get(data.wht_type, "0")) if data.wht_type else None,
             )
             try:
                 return await self.po_repo.create(po)
@@ -958,13 +988,22 @@ class ProcurementService:
         else:
             lines_total = _to_decimal(po.amount_subtotal)
         rate = _to_decimal(po.vat_rate) if po.vat_rate else THAI_DEFAULT_VAT_RATE
-        net, vat, total = compute_vat(lines_total, po.vat_mode, rate)
-        await self.po_repo.update(
-            po_id,
-            amount_subtotal=format(net, "f"),
-            tax_amount=format(vat, "f"),
-            amount_total=format(total, "f"),
-        )
+        updates: dict[str, str | None] = {}
+        if po.vat_mode:
+            net, vat, total = compute_vat(lines_total, po.vat_mode, rate)
+            updates.update(
+                amount_subtotal=format(net, "f"),
+                tax_amount=format(vat, "f"),
+                amount_total=format(total, "f"),
+            )
+        # Withholding tax on the flagged (service / labour) lines, net of VAT.
+        if po.wht_type:
+            flagged = sum((_to_decimal(i.amount) for i in po.items if i.wht_applies), Decimal("0"))
+            base, wht = compute_wht(flagged, po.vat_mode, rate, _to_decimal(po.wht_rate or "0"))
+            updates.update(wht_base=format(base, "f"), wht_amount=format(wht, "f"))
+        else:
+            updates.update(wht_base=None, wht_amount=None, wht_rate=None)
+        await self.po_repo.update(po_id, **updates)
         return await self.get_po(po_id)
 
     async def get_po(self, po_id: uuid.UUID) -> PurchaseOrder:
@@ -1126,6 +1165,12 @@ class ProcurementService:
                     ).strip(),
                 )
 
+        # Withholding tax: "" clears it; a new type without a rate takes its usual rate.
+        if "wht_type" in fields:
+            fields["wht_type"] = fields["wht_type"] or None
+            if fields["wht_type"] and not fields.get("wht_rate"):
+                fields["wht_rate"] = WHT_TYPES.get(fields["wht_type"], "0")
+
         # Recompute total if subtotal or tax changed
         new_subtotal = fields.get("amount_subtotal", po.amount_subtotal)
         new_tax = fields.get("tax_amount", po.tax_amount)
@@ -1170,6 +1215,7 @@ class ProcurementService:
                     cost_category=item_data.cost_category,
                     cost_line_id=item_cost_line_ids[idx],
                     sort_order=item_data.sort_order if item_data.sort_order else idx,
+                    wht_applies=item_data.wht_applies or None,
                 )
                 await self.po_item_repo.create(item)
 
@@ -1196,8 +1242,9 @@ class ProcurementService:
 
         # Thai VAT: the order's mode decides net / VAT / total, so a PATCH that
         # touched the lines, the amounts or the VAT settings is recomputed.
-        if updated.vat_mode and (
-            data.items is not None or {"amount_subtotal", "tax_amount", "vat_mode", "vat_rate"} & set(fields)
+        if (updated.vat_mode or updated.wht_type or "wht_type" in fields) and (
+            data.items is not None
+            or {"amount_subtotal", "tax_amount", "vat_mode", "vat_rate", "wht_type", "wht_rate"} & set(fields)
         ):
             updated = await self._apply_vat(po_id)
 

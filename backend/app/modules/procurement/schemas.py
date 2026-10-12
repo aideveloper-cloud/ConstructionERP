@@ -29,6 +29,18 @@ def _validate_non_negative_decimal(v: str) -> str:
 
 VatModeLiteral = Literal["exclusive", "inclusive", "none"]
 
+# Thai withholding-tax income types and their usual rate for a juristic payee
+# (Revenue Department order ท.ป.4/2528). The rate stays editable per order.
+WHT_TYPES: dict[str, str] = {
+    "service": "3",  # ค่าบริการ
+    "hire_of_work": "3",  # ค่าจ้างทำของ / ค่ารับเหมา
+    "professional": "3",  # ค่าวิชาชีพอิสระ
+    "transport": "1",  # ค่าขนส่ง
+    "advertising": "2",  # ค่าโฆษณา
+    "rent": "5",  # ค่าเช่า
+}
+WhtTypeLiteral = Literal["service", "hire_of_work", "professional", "transport", "advertising", "rent"]
+
 
 def _validate_vat_rate(v: str | None) -> str | None:
     """A VAT percent between 0 and 100 (Thailand: 7, or 0 for zero-rated)."""
@@ -66,6 +78,8 @@ class POItemCreate(BaseModel):
         max_length=36,
         description="BoQ position this line is bought against. Resolved to a cost line on write.",
     )
+    # Thai withholding tax: this line is service / labour (materials are not).
+    wht_applies: bool = False
     cost_line_id: str | None = Field(
         default=None,
         max_length=36,
@@ -105,11 +119,19 @@ class POCreate(BaseModel):
     # left out). No mode = the caller's own tax_amount stands, as before.
     vat_mode: VatModeLiteral | None = None
     vat_rate: str | None = Field(default=None, max_length=10)
+    # Thai withholding tax on the lines flagged ``wht_applies``.
+    wht_type: WhtTypeLiteral | None = None
+    wht_rate: str | None = Field(default=None, max_length=10)
 
     @field_validator("amount_subtotal", "tax_amount", "amount_total")
     @classmethod
     def _check_non_negative_decimal(cls, v: str) -> str:
         return _validate_non_negative_decimal(v)
+
+    @field_validator("wht_rate")
+    @classmethod
+    def _check_wht_rate(cls, v: str | None) -> str | None:
+        return _validate_vat_rate(v)
 
     @field_validator("vat_rate")
     @classmethod
@@ -157,6 +179,14 @@ class POUpdate(BaseModel):
     metadata: dict[str, Any] | None = None
     vat_mode: VatModeLiteral | None = None
     vat_rate: str | None = Field(default=None, max_length=10)
+    # "" clears the withholding tax.
+    wht_type: WhtTypeLiteral | Literal[""] | None = None
+    wht_rate: str | None = Field(default=None, max_length=10)
+
+    @field_validator("wht_rate")
+    @classmethod
+    def _check_wht_rate(cls, v: str | None) -> str | None:
+        return _validate_vat_rate(v)
 
     @field_validator("amount_subtotal", "tax_amount", "amount_total")
     @classmethod
@@ -219,6 +249,7 @@ class POItemResponse(BaseModel):
     # bill, and for one whose cost line was generated from no position.
     boq_position_id: UUID | None = None
     sort_order: int = 0
+    wht_applies: bool | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -258,6 +289,15 @@ class POResponse(BaseModel):
     amount_total: str = "0"
     vat_mode: str | None = None
     vat_rate: str | None = None
+    wht_type: str | None = None
+    wht_rate: str | None = None
+    wht_base: str | None = None
+    wht_amount: str | None = None
+    # ภ.ง.ด.3 (natural-person vendor) or ภ.ง.ด.53 (company), from the vendor's
+    # party kind; null when the order has no WHT or the kind is not stated.
+    wht_form: str | None = None
+    # What the vendor actually receives: total less withholding tax.
+    net_payable: str | None = None
     status: str = "draft"
     payment_terms: str | None = None
     notes: str | None = None

@@ -27,3 +27,27 @@ export function computeVat(linesTotal: number, mode: VatMode, ratePercent: numbe
   }
   return { net: gross / 100, vat: 0, total: gross / 100 };
 }
+
+/**
+ * หัก ณ ที่จ่าย — แบบเดียวกับ backend ``compute_wht``: ฐานคือบรรทัดที่ติ๊กไว้ (ก่อน VAT)
+ * ถ้าราคากรอกแบบรวม VAT จะถอด VAT ออกก่อน แล้วคิดภาษีตามอัตรา ปัดเป็นสตางค์
+ */
+export type WhtType = 'service' | 'hire_of_work' | 'professional' | 'transport' | 'advertising' | 'rent';
+
+/** อัตราปกติสำหรับผู้รับเงินที่เป็นนิติบุคคล (แก้ได้รายใบ) */
+export const WHT_RATES: Record<WhtType, number> = {
+  service: 3,
+  hire_of_work: 3,
+  professional: 3,
+  transport: 1,
+  advertising: 2,
+  rent: 5,
+};
+
+export function computeWht(flaggedLines: number, vatMode: VatMode | null, vatRate: number, whtRate: number) {
+  let base = toCents(flaggedLines);
+  if (vatMode === 'inclusive' && vatRate > 0) base = Math.round((base * 100) / (100 + vatRate));
+  const rate = Number.isFinite(whtRate) && whtRate > 0 ? whtRate : 0;
+  const wht = Math.round((base * rate) / 100);
+  return { base: base / 100, wht: wht / 100 };
+}
