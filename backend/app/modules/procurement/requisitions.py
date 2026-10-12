@@ -13,19 +13,19 @@ screen. This module is the missing middle:
 * an approved PR becomes a draft purchase order ("ออกใบสั่งซื้อ") carrying the
   same lines and bill links, and the PR is marked ordered and linked to it.
 
-Numbers follow the Thai document convention ``PR<yymm>-<nnnn>`` per project
-and month in the Thai edition, and the existing ``MR-<nnnn>`` otherwise.
+Numbers follow the Thai document convention ``PR<พ.ศ.yymm>-<nnnn>``, one
+sequence for the whole company (:mod:`app.core.thai_doc_numbers`), and the
+existing ``MR-<nnnn>`` outside the Thai edition.
 """
 
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
 from fastapi import HTTPException, status
-from sqlalchemy import Integer, cast, func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.procurement.cost_spine import resolve_cost_line_ids
@@ -54,15 +54,6 @@ from app.modules.procurement.service import (
 TARGET_KIND = "purchase_requisition"
 
 
-def _thai_numbers() -> bool:
-    try:
-        from app.core.thai_edition import thai_edition_active  # noqa: PLC0415
-
-        return thai_edition_active()
-    except Exception:  # noqa: BLE001
-        return False
-
-
 class RequisitionService(MaterialRequisitionService):
     """PR use cases on top of the existing requisition service."""
 
@@ -72,21 +63,12 @@ class RequisitionService(MaterialRequisitionService):
     # ── numbering ────────────────────────────────────────────────────────
 
     async def _next_req_number(self, project_id: uuid.UUID) -> str:
-        """``PR<yymm>-<nnnn>`` in the Thai edition (running per project per month)."""
-        if not _thai_numbers():
+        """``PR<พ.ศ.yymm>-<nnnn>`` company-wide in the Thai edition, ``MR-<nnnn>`` otherwise."""
+        from app.core.thai_doc_numbers import next_thai_number, thai_numbers_active  # noqa: PLC0415
+
+        if not thai_numbers_active():
             return await super()._next_req_number(project_id)
-        prefix = f"PR{datetime.now(UTC):%y%m}-"
-        stmt = select(
-            func.coalesce(
-                func.max(cast(func.substr(MaterialRequisition.req_number, len(prefix) + 1), Integer)),
-                0,
-            )
-        ).where(
-            MaterialRequisition.project_id == project_id,
-            MaterialRequisition.req_number.regexp_match(f"^{prefix}[0-9]+$"),
-        )
-        last = (await self.session.execute(stmt)).scalar_one()
-        return f"{prefix}{int(last) + 1:04d}"
+        return await next_thai_number(self.session, MaterialRequisition.req_number, "PR")
 
     # ── lines ────────────────────────────────────────────────────────────
 
@@ -293,6 +275,9 @@ class RequisitionService(MaterialRequisitionService):
                 notes=f"{req.req_number}: {req.title}" if req.title else req.req_number,
                 items=po_items,
                 metadata={"requisition_id": str(req.id), "requisition_number": req.req_number},
+                # Thai default: prices before VAT, 7% on top, unless the buyer chose.
+                vat_mode=data.vat_mode or "exclusive",
+                vat_rate=data.vat_rate,
             ),
             user_id=user_id,
         )

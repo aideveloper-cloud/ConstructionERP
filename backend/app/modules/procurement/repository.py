@@ -217,6 +217,12 @@ class PurchaseOrderRepository:
         cast (``invalid input syntax for type integer``), so the numeric regex
         filter is required for correctness, not cosmetic.
         """
+        # Thai edition: PO<พ.ศ.yymm>-<nnnn>, one sequence for the whole company.
+        from app.core.thai_doc_numbers import next_thai_number, thai_numbers_active
+
+        if thai_numbers_active():
+            return await next_thai_number(self.session, PurchaseOrder.po_number, "PO")
+
         from sqlalchemy import Integer as SAInteger
         from sqlalchemy import cast
         from sqlalchemy.sql import func as sqlfunc

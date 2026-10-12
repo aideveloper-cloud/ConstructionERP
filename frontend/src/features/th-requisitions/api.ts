@@ -74,6 +74,8 @@ export interface RequisitionToPOInput {
   delivery_date?: string | null;
   payment_terms?: string | null;
   lines: { item_id: string; unit_rate: string; quantity?: string }[];
+  vat_mode?: 'exclusive' | 'inclusive' | 'none';
+  vat_rate?: string;
 }
 
 const BASE = '/v1/procurement/requisitions';

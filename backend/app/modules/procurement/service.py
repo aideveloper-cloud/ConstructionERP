@@ -301,6 +301,31 @@ def _parse_decimal(value: str, field_name: str = "value") -> Decimal:
         ) from exc
 
 
+THAI_DEFAULT_VAT_RATE = Decimal("7")
+_CENT = Decimal("0.01")
+
+
+def compute_vat(lines_total: Decimal, mode: str | None, rate: Decimal) -> tuple[Decimal, Decimal, Decimal]:
+    """Split a lines total into (net subtotal, VAT, grand total) for a VAT mode.
+
+    exclusive: lines are before VAT, VAT = net x rate.
+    inclusive: lines already include VAT, net = gross / (1 + rate).
+    none:      no VAT.
+    VAT is rounded to satang (2 dp, half up) the way Thai tax invoices are,
+    and net + VAT always equals the total exactly.
+    """
+    from decimal import ROUND_HALF_UP  # noqa: PLC0415
+
+    gross = lines_total.quantize(_CENT, rounding=ROUND_HALF_UP)
+    if mode == "inclusive" and rate > 0:
+        net = (gross * Decimal(100) / (Decimal(100) + rate)).quantize(_CENT, rounding=ROUND_HALF_UP)
+        return net, gross - net, gross
+    if mode == "exclusive" and rate > 0:
+        vat = (gross * rate / Decimal(100)).quantize(_CENT, rounding=ROUND_HALF_UP)
+        return gross, vat, gross + vat
+    return gross, Decimal("0.00"), gross
+
+
 def _compute_po_total(subtotal: str, tax: str) -> str:
     """Compute amount_total = amount_subtotal + tax_amount."""
     s = _parse_decimal(subtotal, "amount_subtotal")
@@ -481,6 +506,11 @@ def _frozen_po_changes(
         for name in ("amount_subtotal", "tax_amount", "amount_total")
     ):
         changed.append("amounts")
+    # The VAT mode and rate decide the amounts, so they freeze with them.
+    if ("vat_mode" in fields and fields["vat_mode"] != po.vat_mode) or (
+        "vat_rate" in fields and _cents(fields["vat_rate"]) != _cents(po.vat_rate)
+    ):
+        changed.append("VAT")
     if (
         "currency_code" in fields
         and (fields["currency_code"] or "").strip().upper() != (po.currency_code or "").strip().upper()
@@ -817,6 +847,10 @@ class ProcurementService:
             if reloaded is not None:
                 po = reloaded
 
+        # Thai VAT: split the lines into net / VAT / total for the order's mode.
+        if po.vat_mode:
+            po = await self._apply_vat(po.id)
+
         await _safe_publish(
             "procurement.po.created",
             {
@@ -881,6 +915,13 @@ class ProcurementService:
                 notes=data.notes,
                 created_by=uuid.UUID(user_id) if user_id else None,
                 metadata_=data.metadata,
+                # VAT is applied only when the caller names a mode; without one
+                # the order keeps the caller's own tax_amount (the API contract
+                # other clients rely on). The Thai screens always send a mode.
+                vat_mode=data.vat_mode,
+                vat_rate=data.vat_rate
+                if data.vat_rate is not None
+                else (format(THAI_DEFAULT_VAT_RATE, "f") if data.vat_mode else None),
             )
             try:
                 return await self.po_repo.create(po)
@@ -901,6 +942,30 @@ class ProcurementService:
                 f"{_MAX_RETRIES} attempts (concurrent contention). Please retry."
             ),
         ) from last_exc
+
+    async def _apply_vat(self, po_id: uuid.UUID) -> PurchaseOrder:
+        """Recompute net / VAT / total of a PO from its lines and VAT mode.
+
+        Without lines the stored subtotal stands in for the lines total (an
+        order raised as a lump sum). ``amount_subtotal`` is always written net
+        of VAT, the figure finance commits against the budget.
+        """
+        po = await self.get_po(po_id)
+        if po.items:
+            lines_total = sum((_to_decimal(i.amount) for i in po.items), Decimal("0"))
+        elif po.vat_mode == "inclusive":
+            lines_total = _to_decimal(po.amount_total)
+        else:
+            lines_total = _to_decimal(po.amount_subtotal)
+        rate = _to_decimal(po.vat_rate) if po.vat_rate else THAI_DEFAULT_VAT_RATE
+        net, vat, total = compute_vat(lines_total, po.vat_mode, rate)
+        await self.po_repo.update(
+            po_id,
+            amount_subtotal=format(net, "f"),
+            tax_amount=format(vat, "f"),
+            amount_total=format(total, "f"),
+        )
+        return await self.get_po(po_id)
 
     async def get_po(self, po_id: uuid.UUID) -> PurchaseOrder:
         """Get PO by ID. Raises 404 if not found."""
@@ -1128,6 +1193,13 @@ class ProcurementService:
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Purchase order not found",
             )
+
+        # Thai VAT: the order's mode decides net / VAT / total, so a PATCH that
+        # touched the lines, the amounts or the VAT settings is recomputed.
+        if updated.vat_mode and (
+            data.items is not None or {"amount_subtotal", "tax_amount", "vat_mode", "vat_rate"} & set(fields)
+        ):
+            updated = await self._apply_vat(po_id)
 
         # The same gate :meth:`approve_po` applies. PATCH is a second door into
         # ``approved`` (``_PO_STATUS_TRANSITIONS`` allows ``draft -> approved``

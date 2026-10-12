@@ -35,6 +35,7 @@ import { normalizeRole } from '@/shared/lib/roles';
 import { BillPositionPicker } from '@/features/procurement/BillPositionPicker';
 import { fetchPositionLine } from '@/features/procurement/costSpineApi';
 import { bahtText } from '@/app/thai/bahtText';
+import { computeVat, THAI_VAT_RATE, type VatMode } from '@/app/thai/vat';
 import {
   useCreateRequisition,
   useDeleteRequisition,
@@ -532,6 +533,7 @@ function CreatePODialog({ req, onClose }: { req: Requisition; onClose: () => voi
   const [vendorName, setVendorName] = useState('');
   const [issueDate, setIssueDate] = useState(new Date().toISOString().slice(0, 10));
   const [deliveryDate, setDeliveryDate] = useState(req.required_date ?? '');
+  const [vatMode, setVatMode] = useState<VatMode>('exclusive');
   const [rates, setRates] = useState<Record<string, string>>(() =>
     Object.fromEntries(req.items.map((i) => [i.id, String(Number(i.unit_cost))])),
   );
@@ -544,6 +546,7 @@ function CreatePODialog({ req, onClose }: { req: Requisition; onClose: () => voi
 
   const total = req.items.reduce((a, i) => a + Number(i.quantity_requested) * (Number(clean(rates[i.id] ?? '0')) || 0), 0);
   const ratesOk = req.items.every((i) => isNum(rates[i.id] ?? ''));
+  const vat = computeVat(total, vatMode, THAI_VAT_RATE);
 
   const submit = async () => {
     try {
@@ -552,6 +555,8 @@ function CreatePODialog({ req, onClose }: { req: Requisition; onClose: () => voi
         issue_date: issueDate || null,
         delivery_date: deliveryDate || null,
         lines: req.items.map((i) => ({ item_id: i.id, unit_rate: clean(rates[i.id] ?? '0') })),
+        vat_mode: vatMode,
+        vat_rate: String(THAI_VAT_RATE),
       })) as Requisition;
       addToast({
         type: 'success',
@@ -614,9 +619,21 @@ function CreatePODialog({ req, onClose }: { req: Requisition; onClose: () => voi
             </tbody>
           </table>
         </div>
-        <p className="mt-2 text-right text-sm text-content-secondary">
-          {t('th_ui.pr.po_total', { defaultValue: 'ยอดก่อน VAT' })} <span className="ms-1 font-bold tabular-nums text-content-primary">{fmt.num(total)}</span>
-        </p>
+        <div className="mt-3 flex flex-wrap items-start justify-between gap-3">
+          <label className="text-xs text-content-secondary">
+            <span className="mb-1 block font-semibold text-content-tertiary">{t('th_ui.vat.mode_label', { defaultValue: 'ราคาที่กรอก' })}</span>
+            <select value={vatMode} onChange={(e) => setVatMode(e.target.value as VatMode)} className={clsx(inp, 'h-8 w-auto text-xs')}>
+              <option value="exclusive">{t('th_ui.vat.exclusive', { defaultValue: 'ยังไม่รวม VAT' })}</option>
+              <option value="inclusive">{t('th_ui.vat.inclusive', { defaultValue: 'รวม VAT แล้ว' })}</option>
+              <option value="none">{t('th_ui.vat.none', { defaultValue: 'ไม่มี VAT / ยกเว้น' })}</option>
+            </select>
+          </label>
+          <dl className="min-w-[220px] space-y-1 text-sm">
+            <div className="flex justify-between gap-4"><dt className="text-content-secondary">{t('th_ui.vat.net', { defaultValue: 'มูลค่าก่อน VAT' })}</dt><dd className="tabular-nums">{fmt.num(vat.net)}</dd></div>
+            <div className="flex justify-between gap-4"><dt className="text-content-secondary">{vatMode === 'none' ? t('th_ui.vat.none', { defaultValue: 'ไม่มี VAT / ยกเว้น' }) : t('th_ui.vat.amount', { defaultValue: 'ภาษีมูลค่าเพิ่ม {{rate}}%', rate: THAI_VAT_RATE })}</dt><dd className="tabular-nums">{fmt.num(vat.vat)}</dd></div>
+            <div className="flex justify-between gap-4 border-t border-border-light pt-1 font-bold"><dt>{t('th_ui.vat.total', { defaultValue: 'รวมทั้งสิ้น' })}</dt><dd className="tabular-nums">{fmt.num(vat.total)}</dd></div>
+          </dl>
+        </div>
         <div className="mt-4 flex justify-end gap-2">
           <button type="button" onClick={onClose} className={btn('secondary')}>{t('th_ui.approvals.cancel', { defaultValue: 'ยกเลิก' })}</button>
           <button type="button" onClick={submit} disabled={!vendorId || !ratesOk || toPO.isPending} className={btn('primary')}>

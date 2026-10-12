@@ -27,6 +27,19 @@ def _validate_non_negative_decimal(v: str) -> str:
     return v
 
 
+VatModeLiteral = Literal["exclusive", "inclusive", "none"]
+
+
+def _validate_vat_rate(v: str | None) -> str | None:
+    """A VAT percent between 0 and 100 (Thailand: 7, or 0 for zero-rated)."""
+    if v is None:
+        return v
+    d = Decimal(_validate_non_negative_decimal(v))
+    if d > 100:
+        raise ValueError("VAT rate is a percent between 0 and 100")
+    return format(d.normalize(), "f")
+
+
 # ── Purchase Order ───────────────────────────────────────────────────────────
 
 
@@ -88,11 +101,20 @@ class POCreate(BaseModel):
     notes: str | None = Field(default=None, max_length=5000)
     items: list[POItemCreate] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
+    # Thai VAT: how line prices were entered and the rate (percent, 7 when
+    # left out). No mode = the caller's own tax_amount stands, as before.
+    vat_mode: VatModeLiteral | None = None
+    vat_rate: str | None = Field(default=None, max_length=10)
 
     @field_validator("amount_subtotal", "tax_amount", "amount_total")
     @classmethod
     def _check_non_negative_decimal(cls, v: str) -> str:
         return _validate_non_negative_decimal(v)
+
+    @field_validator("vat_rate")
+    @classmethod
+    def _check_vat_rate(cls, v: str | None) -> str | None:
+        return _validate_vat_rate(v)
 
 
 class InvoiceCheckLine(BaseModel):
@@ -133,6 +155,8 @@ class POUpdate(BaseModel):
     notes: str | None = Field(default=None, max_length=5000)
     items: list[POItemCreate] | None = None
     metadata: dict[str, Any] | None = None
+    vat_mode: VatModeLiteral | None = None
+    vat_rate: str | None = Field(default=None, max_length=10)
 
     @field_validator("amount_subtotal", "tax_amount", "amount_total")
     @classmethod
@@ -140,6 +164,11 @@ class POUpdate(BaseModel):
         if v is None:
             return v
         return _validate_non_negative_decimal(v)
+
+    @field_validator("vat_rate")
+    @classmethod
+    def _check_vat_rate(cls, v: str | None) -> str | None:
+        return _validate_vat_rate(v)
 
     @field_validator("issue_date", "delivery_date")
     @classmethod
@@ -227,6 +256,8 @@ class POResponse(BaseModel):
     amount_subtotal: str = "0"
     tax_amount: str = "0"
     amount_total: str = "0"
+    vat_mode: str | None = None
+    vat_rate: str | None = None
     status: str = "draft"
     payment_terms: str | None = None
     notes: str | None = None
@@ -846,3 +877,10 @@ class RequisitionToPO(BaseModel):
     payment_terms: str | None = Field(default=None, max_length=100)
     # Omitted lines keep the requester's estimate as the price.
     lines: list[RequisitionToPOLine] = Field(default_factory=list)
+    vat_mode: VatModeLiteral | None = None
+    vat_rate: str | None = Field(default=None, max_length=10)
+
+    @field_validator("vat_rate")
+    @classmethod
+    def _check_vat_rate(cls, v: str | None) -> str | None:
+        return _validate_vat_rate(v)

@@ -64,6 +64,8 @@ import { RelatedRecordLink } from '@/shared/ui/RelatedRecordLink';
 import { SHOW_UPSTREAM_EXTRAS } from '@/app/thai/flags';
 import { submitForApproval, APPROVAL_QUEUE_ROOT } from '@/features/th-approvals/api';
 import { INBOX_QUERY_ROOT } from '@/features/inbox/useInbox';
+import { computeVat, THAI_VAT_RATE, type VatMode } from '@/app/thai/vat';
+import { bahtText } from '@/app/thai/bahtText';
 
 /** ฉบับไทย: PO ร่างต้อง "ส่งอนุมัติ" เข้าสายอนุมัติ แทนการกดอนุมัติเองตรงๆ */
 const ROUTED_PO_APPROVAL = !SHOW_UPSTREAM_EXTRAS;
@@ -175,6 +177,9 @@ interface POResponse {
   amount_subtotal: string | number;
   tax_amount: string | number;
   amount_total: string | number;
+  /** Thai VAT: how prices were entered; null on orders from before VAT modes. */
+  vat_mode?: VatMode | null;
+  vat_rate?: string | null;
   status: string;
   payment_terms: string | null;
   notes: string | null;
@@ -331,7 +336,8 @@ const inputCls =
  *  inherited from the project (task #217); the project's resolved currency
  *  is merged in so any project currency stays selectable. */
 const COMMON_CURRENCIES = [
-  'EUR', 'USD', 'GBP', 'CHF', 'PLN', 'CZK', 'SEK', 'NOK', 'DKK', 'AED', 'SAR',
+  // THB first: the Thai edition's own currency.
+  'THB', 'EUR', 'USD', 'GBP', 'CHF', 'PLN', 'CZK', 'SEK', 'NOK', 'DKK', 'AED', 'SAR',
 ] as const;
 
 function currencyOptions(active: string): string[] {
@@ -682,9 +688,19 @@ function PurchaseOrdersTab({
   // The state an edit prefill left the form in, so the save can send only what
   // the user actually changed. `null` outside edit mode. See
   // `poFormFromResponse`.
-  const [poBase, setPoBase] = useState<{ form: POFormState; tax: string } | null>(null);
+  const [poBase, setPoBase] = useState<{
+    form: POFormState;
+    tax: string;
+    vatMode: VatMode | null;
+    vatRate: string;
+  } | null>(null);
   const [poErrors, setPoErrors] = useState<Record<string, string>>({});
   const [poTaxInput, setPoTaxInput] = useState('0');
+  // Thai VAT (Thai edition): how line prices are entered + the rate. null on an
+  // order saved before VAT modes existed, which keeps the old free tax field.
+  const defaultVatMode: VatMode | null = ROUTED_PO_APPROVAL ? 'exclusive' : null;
+  const [poVatMode, setPoVatMode] = useState<VatMode | null>(defaultVatMode);
+  const [poVatRate, setPoVatRate] = useState(String(THAI_VAT_RATE));
   const firstFieldRef = useRef<HTMLDivElement>(null);
 
   const emptyPoForm = {
@@ -710,6 +726,8 @@ function PurchaseOrdersTab({
     setPoForm({ ...emptyPoForm, items: [{ ...emptyLine }] });
     setPoBase(null);
     setPoTaxInput('0');
+    setPoVatMode(defaultVatMode);
+    setPoVatRate(String(THAI_VAT_RATE));
     setPoErrors({});
   };
 
@@ -778,7 +796,10 @@ function PurchaseOrdersTab({
 
   // Computed totals
   const poSubtotal = poForm.items.reduce((s, li) => s + parseFloat(li.amount || '0'), 0);
-  const poTotal = poSubtotal + parseFloat(poTaxInput || '0');
+  // With a VAT mode the server splits the lines into net / VAT / total the
+  // same way (computeVat mirrors it); without one the tax is typed in.
+  const vatCalc = poVatMode ? computeVat(poSubtotal, poVatMode, Number(poVatRate)) : null;
+  const poTotal = vatCalc ? vatCalc.total : poSubtotal + parseFloat(poTaxInput || '0');
   // What to show as the amount prefix in the modal - the chosen currency,
   // else the resolved project currency, else a neutral label (never EUR).
   const displayCurrency =
@@ -822,9 +843,10 @@ function PurchaseOrdersTab({
         issue_date: todayStr,
         delivery_date: data.delivery_date || undefined,
         currency_code: data.currency,
-        amount_subtotal: String(poSubtotal.toFixed(2)),
-        tax_amount: poTaxInput || '0',
+        amount_subtotal: String((vatCalc ? vatCalc.net : poSubtotal).toFixed(2)),
+        tax_amount: vatCalc ? vatCalc.vat.toFixed(2) : poTaxInput || '0',
         amount_total: String(poTotal.toFixed(2)),
+        ...(poVatMode ? { vat_mode: poVatMode, vat_rate: poVatRate || '0' } : {}),
         payment_terms: `Net ${data.payment_terms}`,
         notes: data.notes || undefined,
         status: 'draft',
@@ -870,7 +892,10 @@ function PurchaseOrdersTab({
       const base = poBase?.form ?? data;
       const baseTax = poBase?.tax ?? poTaxInput;
       const itemsChanged = JSON.stringify(data.items) !== JSON.stringify(base.items);
-      const taxChanged = poTaxInput !== baseTax;
+      const vatChanged =
+        poVatMode !== (poBase?.vatMode ?? poVatMode) || poVatRate !== (poBase?.vatRate ?? poVatRate);
+      // With a VAT mode the tax is derived, never typed, so only the mode/rate travel.
+      const taxChanged = !poVatMode && poTaxInput !== baseTax;
       const body: Record<string, unknown> = {};
       if (data.vendor_contact_id !== base.vendor_contact_id) {
         body.vendor_contact_id = data.vendor_contact_id || undefined;
@@ -899,6 +924,10 @@ function PurchaseOrdersTab({
         body.amount_subtotal = String(poSubtotal.toFixed(2));
       }
       if (taxChanged) body.tax_amount = poTaxInput || '0';
+      if (vatChanged && poVatMode) {
+        body.vat_mode = poVatMode;
+        body.vat_rate = poVatRate || '0';
+      }
       // The total is the sum of the two, so it moves whenever either does.
       if (itemsChanged || taxChanged) body.amount_total = String(poTotal.toFixed(2));
       return apiPatch<{ vendor_warnings?: string[] }>(`/v1/procurement/${id}`, body);
@@ -922,9 +951,13 @@ function PurchaseOrdersTab({
       // can never drift apart. See `poFormFromResponse`.
       const seeded = poFormFromResponse(po, projectCurrency);
       const tax = po.tax_amount != null ? String(po.tax_amount) : '0';
+      const vatMode = po.vat_mode ?? null;
+      const vatRate = po.vat_rate != null ? String(Number(po.vat_rate)) : String(THAI_VAT_RATE);
       setPoForm(seeded);
-      setPoBase({ form: seeded, tax });
+      setPoBase({ form: seeded, tax, vatMode, vatRate });
       setPoTaxInput(tax);
+      setPoVatMode(vatMode);
+      setPoVatRate(vatRate);
       setPoErrors({});
       setEditingPO(po.id);
       setEditingPOStatus(po.status);
@@ -1408,6 +1441,61 @@ function PurchaseOrdersTab({
               {poErrors.items && <p className="mt-1.5 text-xs text-semantic-error">{poErrors.items}</p>}
 
               {/* Totals */}
+              {vatCalc && poVatMode ? (
+              <div className="mt-4 space-y-2">
+                <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+                  <span className="text-content-secondary">{t('th_ui.vat.mode_label', { defaultValue: 'ราคาที่กรอก' })}</span>
+                  <div className="flex items-center gap-2">
+                    <select
+                      value={poVatMode}
+                      disabled={figuresLocked}
+                      onChange={(e) => setPoVatMode(e.target.value as VatMode)}
+                      aria-label={t('th_ui.vat.mode_label', { defaultValue: 'ราคาที่กรอก' })}
+                      className={clsx(inputCls, 'h-8 w-auto text-xs')}
+                    >
+                      <option value="exclusive">{t('th_ui.vat.exclusive', { defaultValue: 'ยังไม่รวม VAT' })}</option>
+                      <option value="inclusive">{t('th_ui.vat.inclusive', { defaultValue: 'รวม VAT แล้ว' })}</option>
+                      <option value="none">{t('th_ui.vat.none', { defaultValue: 'ไม่มี VAT / ยกเว้น' })}</option>
+                    </select>
+                    {poVatMode !== 'none' && (
+                      <div className="relative w-24">
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          value={poVatRate}
+                          disabled={figuresLocked}
+                          onChange={(e) => setPoVatRate(e.target.value)}
+                          aria-label={t('th_ui.vat.rate', { defaultValue: 'อัตรา VAT (%)' })}
+                          className={clsx(inputCls, 'h-8 pl-2 pr-7 text-right text-xs tabular-nums')}
+                        />
+                        <span className="pointer-events-none absolute inset-y-0 right-2 flex items-center text-2xs text-content-tertiary">%</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-content-secondary">{t('th_ui.vat.net', { defaultValue: 'มูลค่าก่อน VAT' })}</span>
+                  <span className="tabular-nums font-medium text-content-primary">{displayCurrency} {fmtFixed(vatCalc.net, 2)}</span>
+                </div>
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-content-secondary">
+                    {poVatMode === 'none'
+                      ? t('th_ui.vat.none', { defaultValue: 'ไม่มี VAT / ยกเว้น' })
+                      : t('th_ui.vat.amount', { defaultValue: 'ภาษีมูลค่าเพิ่ม {{rate}}%', rate: poVatRate || '0' })}
+                  </span>
+                  <span className="tabular-nums font-medium text-content-primary">{displayCurrency} {fmtFixed(vatCalc.vat, 2)}</span>
+                </div>
+                <div className="rounded-lg bg-surface-secondary/60 px-3 py-2.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-semibold text-content-primary">{t('th_ui.vat.total', { defaultValue: 'รวมทั้งสิ้น' })}</span>
+                    <span className="text-base font-bold tabular-nums text-content-primary">{displayCurrency} {fmtFixed(vatCalc.total, 2)}</span>
+                  </div>
+                  {(poForm.currency || projectCurrency) === 'THB' && vatCalc.total > 0 && (
+                    <p className="mt-0.5 text-right text-2xs text-content-tertiary">({bahtText(vatCalc.total)})</p>
+                  )}
+                </div>
+              </div>
+              ) : (
               <div className="mt-4 space-y-2">
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-content-secondary">{t('procurement.subtotal', { defaultValue: 'Subtotal' })}</span>
@@ -1436,6 +1524,7 @@ function PurchaseOrdersTab({
                   <span className="text-base font-bold tabular-nums text-content-primary">{displayCurrency} {fmtFixed(poTotal, 2)}</span>
                 </div>
               </div>
+              )}
             </div>
 
             {/* ── Section: Terms ── */}

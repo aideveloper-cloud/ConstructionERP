@@ -70,6 +70,14 @@ class PurchaseOrder(Base):
     amount_subtotal: Mapped[str] = mapped_column(String(50), nullable=False, default="0")
     tax_amount: Mapped[str] = mapped_column(String(50), nullable=False, default="0")
     amount_total: Mapped[str] = mapped_column(String(50), nullable=False, default="0")
+    # Thai VAT (ภาษีมูลค่าเพิ่ม). ``vat_mode`` says how line prices were entered:
+    # "exclusive" (before VAT, VAT added on top), "inclusive" (VAT already
+    # inside, extracted out) or "none" (exempt / non-registered vendor).
+    # ``vat_rate`` is a percent string ("7"). NULL mode = the old behaviour,
+    # where the caller supplies tax_amount itself. Whatever the mode,
+    # amount_subtotal ends up net of VAT, the basis the budget commits on.
+    vat_mode: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    vat_rate: Mapped[str | None] = mapped_column(String(10), nullable=True)
     # ── Retainage (Gap F, v6.x) ──────────────────────────────────────────
     # Retention withheld on a PO commitment. ``retention_percent`` is the
     # agreed retainage rate (e.g. 5.00 for 5%); ``retainage_amount`` is
