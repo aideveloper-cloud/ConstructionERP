@@ -37,6 +37,10 @@ import { fetchPositionLine } from '@/features/procurement/costSpineApi';
 import { bahtText } from '@/app/thai/bahtText';
 import { computeVat, THAI_VAT_RATE, type VatMode } from '@/app/thai/vat';
 import {
+  useBudgetCheck,
+  type BudgetCheck,
+  type BudgetLevel,
+  type BudgetLineCheck,
   useCreateRequisition,
   useDeleteRequisition,
   useRequisition,
@@ -141,6 +145,40 @@ function RequisitionDoc({ req }: { req: Requisition | null }) {
     [lines],
   );
   const filled = lines.filter((l) => l.description.trim() || l.quantity.trim());
+
+  // ── Budget check: live while typing (debounced), against the BOQ budget lines.
+  // Shown while the PR is still in play; once ordered its lines live on the PO.
+  const showBudget = !req || ['draft', 'rejected', 'submitted', 'approved'].includes(req.status);
+  const [settledLines, setSettledLines] = useState(lines);
+  useEffect(() => {
+    const id = window.setTimeout(() => setSettledLines(lines), 400);
+    return () => window.clearTimeout(id);
+  }, [lines]);
+  const settledFilled = useMemo(
+    () => settledLines.filter((l) => l.description.trim() || l.quantity.trim()),
+    [settledLines],
+  );
+  const budgetQuery = useBudgetCheck(
+    showBudget ? projectId : '',
+    settledFilled.map((l) => ({
+      boq_position_id: l.boq_position_id,
+      cost_line_id: l.boq_position_id ? null : l.cost_line_id,
+      quantity: isNum(l.quantity) ? clean(l.quantity) : '0',
+      unit_cost: isNum(l.unit_cost) ? clean(l.unit_cost) : '0',
+    })),
+    req?.id,
+  );
+  const budget = showBudget ? budgetQuery.data : undefined;
+  /** Budget level and line of one draft line, matched by its position in the checked list. */
+  const budgetFor = (key: string): { level: BudgetLevel; line?: BudgetLineCheck } | null => {
+    if (!budget) return null;
+    const idx = settledFilled.findIndex((l) => l.key === key);
+    const hit = idx >= 0 ? budget.lines[idx] : undefined;
+    if (!hit) return null;
+    return { level: hit.level, line: budget.budget_lines.find((b) => b.cost_line_id === hit.cost_line_id) };
+  };
+  const [confirmOver, setConfirmOver] = useState(false);
+
   const problems: string[] = [];
   if (!title.trim()) problems.push(t('th_ui.pr.err_title', { defaultValue: 'ใส่เรื่องที่ขอซื้อ' }));
   if (filled.length === 0) problems.push(t('th_ui.pr.err_lines', { defaultValue: 'เพิ่มรายการอย่างน้อย 1 รายการ' }));
@@ -193,6 +231,12 @@ function RequisitionDoc({ req }: { req: Requisition | null }) {
   };
 
   const onSubmit = async () => {
+    // Over budget: say so once and let the requester decide to send anyway.
+    if (budget?.level === 'over' && !confirmOver) {
+      setConfirmOver(true);
+      return;
+    }
+    setConfirmOver(false);
     const id = await save();
     if (!id) return;
     try {
@@ -330,6 +374,25 @@ function RequisitionDoc({ req }: { req: Requisition | null }) {
 
       {req && <DocChain req={req} />}
 
+      {confirmOver && (
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#fecaca] bg-[#fef2f2] px-4 py-3 text-sm text-[#991b1b]">
+          <span>
+            <span className="font-semibold">{t('th_ui.budget.over_confirm_title', { defaultValue: 'ใบขอซื้อนี้เกินงบ BOQ' })}</span>{' '}
+            {t('th_ui.budget.over_confirm_body', {
+              defaultValue: 'ผู้อนุมัติจะเห็นว่าเกินงบ และต้องพิจารณาทีละใบ ส่งอนุมัติต่อหรือไม่?',
+            })}
+          </span>
+          <span className="flex gap-2">
+            <button type="button" onClick={() => setConfirmOver(false)} className={btn('secondary')}>
+              {t('th_ui.approvals.cancel', { defaultValue: 'ยกเลิก' })}
+            </button>
+            <button type="button" onClick={onSubmit} className={btn('primary')}>
+              {t('th_ui.budget.send_anyway', { defaultValue: 'ส่งอนุมัติต่อ' })}
+            </button>
+          </span>
+        </div>
+      )}
+
       {req?.status === 'rejected' && (
         <div className="mb-4 rounded-xl border border-[#fecaca] bg-[#fef2f2] px-4 py-3 text-sm text-[#991b1b]">
           <span className="font-semibold">{t('th_ui.pr.returned', { defaultValue: 'ถูกส่งกลับให้แก้ไข' })}:</span>{' '}
@@ -399,6 +462,9 @@ function RequisitionDoc({ req }: { req: Requisition | null }) {
                       {isNum(l.quantity) && isNum(l.unit_cost) ? fmt.num(Number(clean(l.quantity)) * Number(clean(l.unit_cost))) : '—'}
                     </div>
                   </div>
+                  {showBudget && (l.description.trim() || l.quantity.trim()) && (
+                    <LineBudgetBadge check={budgetFor(l.key)} fmt={fmt} />
+                  )}
                   {req && !editable && Number(req.items[n]?.quantity_ordered ?? 0) > 0 && (
                     <p className="mt-1.5 text-[11px] text-content-tertiary">
                       {t('th_ui.pr.ordered_qty', { defaultValue: 'สั่งซื้อแล้ว {{q}}', q: fmt.qty(req.items[n]?.quantity_ordered) })}
@@ -429,6 +495,9 @@ function RequisitionDoc({ req }: { req: Requisition | null }) {
 
         {/* Side */}
         <div className="space-y-4">
+          {showBudget && budget && budget.budget_lines.length + budget.lines.length > 0 && (
+            <BudgetPanel budget={budget} fmt={fmt} />
+          )}
           <Card className="p-4">
             <h2 className="mb-3 text-sm font-semibold text-content-primary">{t('th_ui.pr.section_status', { defaultValue: 'สถานะเอกสาร' })}</h2>
             <dl className="space-y-2.5 text-xs">
@@ -643,6 +712,111 @@ function CreatePODialog({ req, onClose }: { req: Requisition; onClose: () => voi
         </div>
       </div>
     </div>
+  );
+}
+
+/* ── budget ─────────────────────────────────────────────────────────────── */
+
+type Fmt = ReturnType<typeof useFmt>;
+
+const LEVEL_TONE: Record<BudgetLevel, string> = {
+  ok: 'bg-[#f0fdf4] text-[#15803d]',
+  warning: 'bg-[#fff7e6] text-[#b45309]',
+  over: 'bg-[#fef2f2] text-[#dc2626]',
+  unbudgeted: 'bg-surface-secondary text-content-tertiary',
+};
+
+/** One line's budget state, under the line. */
+/** Percent of budget used; huge overruns read as ">999%" instead of a long number. */
+function fmtPct(pct: number | null | undefined): string {
+  if (pct == null) return '';
+  return pct > 999 ? '>999%' : `${pct}%`;
+}
+
+function LineBudgetBadge({ check, fmt }: { check: { level: BudgetLevel; line?: BudgetLineCheck } | null; fmt: Fmt }) {
+  const { t } = useTranslation();
+  if (!check) return null;
+  const b = check.line;
+  const pct = fmtPct(b?.used_pct);
+  const text =
+    check.level === 'unbudgeted' || !b
+      ? t('th_ui.budget.unbudgeted_line', { defaultValue: 'นอก BOQ: ไม่มีงบให้เทียบ' })
+      : check.level === 'over'
+        ? t('th_ui.budget.over_line', {
+            defaultValue: 'เกินงบ {{amount}} (ใช้ {{pct}} ของงบ {{budget}})',
+            amount: fmt.num(-Number(b.remaining)),
+            pct,
+            budget: fmt.num(b.budget),
+          })
+        : t(check.level === 'warning' ? 'th_ui.budget.warning_line' : 'th_ui.budget.ok_line', {
+            defaultValue:
+              check.level === 'warning'
+                ? 'ใกล้เต็มงบ: เหลือ {{amount}} (ใช้ {{pct}})'
+                : 'งบคงเหลือหลังขอ {{amount}} (ใช้ {{pct}})',
+            amount: fmt.num(b.remaining),
+            pct,
+          });
+  return (
+    <p data-testid="line-budget" data-level={check.level} className={clsx('mt-2 inline-flex rounded-md px-2 py-1 text-[11px] font-medium', LEVEL_TONE[check.level])}>
+      {b?.code ? <span className="me-1.5 font-mono">{b.code}</span> : null}
+      {text}
+    </p>
+  );
+}
+
+/** Side panel: every budget line the request touches, with the figures behind its level. */
+function BudgetPanel({ budget, fmt }: { budget: BudgetCheck; fmt: Fmt }) {
+  const { t } = useTranslation();
+  const outside = budget.lines.filter((l) => l.level === 'unbudgeted').length;
+  return (
+    <Card className="p-4" data-testid="budget-panel" data-level={budget.level}>
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <h2 className="text-sm font-semibold text-content-primary">{t('th_ui.budget.title', { defaultValue: 'งบประมาณ (BOQ)' })}</h2>
+        <span className={clsx('rounded-full px-2 py-0.5 text-[10.5px] font-semibold', LEVEL_TONE[budget.level])}>
+          {t(`th_ui.budget.level.${budget.level}`)}
+        </span>
+      </div>
+      <div className="space-y-3">
+        {budget.budget_lines.map((b) => (
+          <div key={b.cost_line_id} className="rounded-lg border border-border-light p-2.5 text-xs">
+            <div className="mb-1.5 flex items-start justify-between gap-2">
+              <span className="min-w-0 truncate font-medium text-content-primary" title={b.description ?? ''}>
+                <span className="me-1 font-mono text-content-tertiary">{b.code}</span>
+                {b.description}
+              </span>
+              <span className={clsx('shrink-0 rounded px-1.5 py-px text-[10px] font-semibold', LEVEL_TONE[b.level])}>
+                {fmtPct(b.used_pct) || '—'}
+              </span>
+            </div>
+            <div className="mb-2 h-1.5 overflow-hidden rounded-full bg-surface-secondary">
+              <div
+                className={clsx('h-full rounded-full', b.level === 'over' ? 'bg-[#dc2626]' : b.level === 'warning' ? 'bg-[#e4ad42]' : 'bg-[#16a34a]')}
+                style={{ width: `${Math.min(100, b.used_pct ?? 0)}%` }}
+              />
+            </div>
+            <dl className="grid grid-cols-2 gap-x-3 gap-y-0.5 tabular-nums">
+              <dt className="text-content-tertiary">{t('th_ui.budget.budget', { defaultValue: 'งบ' })}</dt>
+              <dd className="text-right">{fmt.num(b.budget)}</dd>
+              <dt className="text-content-tertiary">{t('th_ui.budget.ordered', { defaultValue: 'สั่งซื้อแล้ว' })}</dt>
+              <dd className="text-right">{fmt.num(b.ordered)}</dd>
+              <dt className="text-content-tertiary">{t('th_ui.budget.pending', { defaultValue: 'ขอซื้อค้างอนุมัติ' })}</dt>
+              <dd className="text-right">{fmt.num(b.pending)}</dd>
+              <dt className="text-content-tertiary">{t('th_ui.budget.this', { defaultValue: 'ใบนี้' })}</dt>
+              <dd className="text-right font-semibold">{fmt.num(b.this)}</dd>
+              <dt className="font-semibold text-content-secondary">{t('th_ui.budget.remaining', { defaultValue: 'คงเหลือ' })}</dt>
+              <dd className={clsx('text-right font-bold', Number(b.remaining) < 0 ? 'text-[#dc2626]' : 'text-content-primary')}>
+                {fmt.num(b.remaining)}
+              </dd>
+            </dl>
+          </div>
+        ))}
+        {outside > 0 && (
+          <p className="text-[11px] text-content-tertiary">
+            {t('th_ui.budget.outside_count', { defaultValue: '{{n}} รายการอยู่นอก BOQ จึงไม่มีงบให้เทียบ', n: outside })}
+          </p>
+        )}
+      </div>
+    </Card>
   );
 }
 

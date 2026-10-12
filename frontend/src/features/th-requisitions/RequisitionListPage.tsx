@@ -159,7 +159,22 @@ function RequisitionList() {
                     <td className="px-4 py-2.5 text-content-secondary">{r.requester_name ?? '—'}</td>
                     <td className="px-4 py-2.5 tabular-nums text-content-secondary">{fmt.date(r.required_date)}</td>
                     <td className="px-4 py-2.5 text-right font-semibold tabular-nums">{fmt.num(r.total)}</td>
-                    <td className="px-4 py-2.5"><StatusPill status={r.status} /></td>
+                    <td className="px-4 py-2.5">
+                      <span className="inline-flex items-center gap-1.5">
+                        <StatusPill status={r.status} />
+                        {(r.budget_level === 'over' || r.budget_level === 'warning') && (
+                          <span
+                            title={t(`th_ui.budget.level.${r.budget_level}`)}
+                            className={clsx(
+                              'rounded px-1.5 py-px text-[10px] font-semibold',
+                              r.budget_level === 'over' ? 'bg-[#fef2f2] text-[#dc2626]' : 'bg-[#fff7e6] text-[#b45309]',
+                            )}
+                          >
+                            {t(`th_ui.budget.level.${r.budget_level}`)}
+                          </span>
+                        )}
+                      </span>
+                    </td>
                     <td className="px-4 py-2.5">
                       {r.po ? (
                         <Link

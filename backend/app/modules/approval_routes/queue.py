@@ -347,12 +347,22 @@ async def decide_many(
         )
     service = ApprovalRouteService(session)
     me = _uuid(user_id)
+    bulk = decision == "approved" and len(instance_ids) > 1
     results: list[dict[str, Any]] = []
     for instance_id in instance_ids:
         try:
             async with session.begin_nested():
                 inst = await service.get_instance(instance_id)
                 await _check_scope(session, service, inst, accessible_project_ids)
+                # An over-budget request is approved one at a time, after the
+                # approver has looked at it, never swept up in a bulk approval.
+                if bulk:
+                    target = await resolve_target(session, inst.target_kind, inst.target_id)
+                    if target is not None and (target.budget or {}).get("level") == "over":
+                        raise HTTPException(
+                            status_code=status.HTTP_409_CONFLICT,
+                            detail={"code": "over_budget", "message": "Over budget: approve it on its own"},
+                        )
                 steps = await service.list_steps(inst.route_id)
                 step = next((s for s in steps if s.ordinal == inst.current_step_ordinal), None)
                 if step is None:

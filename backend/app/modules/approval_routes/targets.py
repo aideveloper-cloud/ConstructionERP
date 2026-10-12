@@ -43,6 +43,9 @@ class TargetSummary:
     created_by: str | None = None
     # Where the web app shows the document (list page with a highlight).
     url: str | None = None
+    # Budget check stored on the document (purchase requisitions): level
+    # ok / warning / over / unbudgeted, and the budget lines that go over.
+    budget: dict[str, Any] | None = None
 
     def as_dict(self) -> dict[str, Any]:
         out = asdict(self)
@@ -109,6 +112,7 @@ async def _requisitions(session: AsyncSession, ids: list[uuid.UUID]) -> dict[uui
             status=r.status,
             created_by=r.requester_id,
             url=f"/requisitions/{r.id}",
+            budget=(r.metadata_ or {}).get("budget_check"),
         )
     return out
 

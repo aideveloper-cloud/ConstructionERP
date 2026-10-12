@@ -189,6 +189,31 @@ class RequisitionService(MaterialRequisitionService):
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Add at least one line")
         _mr_assert_transition(req.status, "submitted")
         req.status = "submitted"
+        # Budget check at the moment of sending, kept on the PR so the approver
+        # sees what the requester saw (approval card, bulk-approve guard).
+        from app.modules.procurement.budget_check import check_budget  # noqa: PLC0415
+
+        check = await check_budget(
+            self.session,
+            req.project_id,
+            [
+                {
+                    "cost_line_id": i.cost_line_id,
+                    "quantity": Decimal(i.quantity_requested or "0"),
+                    "amount": Decimal(i.extended_cost or 0),
+                }
+                for i in sorted(req.items, key=lambda i: i.sort_order)
+            ],
+            exclude_requisition_id=req.id,
+        )
+        req.metadata_ = {
+            **(req.metadata_ or {}),
+            "budget_check": {
+                "level": check["level"],
+                "over": [b for b in check["budget_lines"] if b["level"] == "over"],
+                "unbudgeted_lines": sum(1 for ln in check["lines"] if ln["level"] == "unbudgeted"),
+            },
+        }
         await self.session.flush()
         await submit_for_approval(
             self.session,
@@ -413,6 +438,7 @@ class RequisitionService(MaterialRequisitionService):
                     po=pos.get(r.po_id) if r.po_id else None,
                     approval_status=inst.status if inst else None,
                     rejection_reason=reasons.get(inst.id) if inst else None,
+                    budget_level=((r.metadata_ or {}).get("budget_check") or {}).get("level"),
                     created_at=r.created_at,
                     updated_at=r.updated_at,
                 )

@@ -47,6 +47,8 @@ export interface Requisition {
   po: { id: string; po_number: string; status: string; amount_total: string; vendor_name: string | null } | null;
   approval_status: string | null;
   rejection_reason: string | null;
+  /** Budget check stored when the PR was sent. */
+  budget_level?: 'ok' | 'warning' | 'over' | 'unbudgeted' | null;
   created_at: string;
   updated_at: string;
 }
@@ -125,3 +127,56 @@ export const useRequisitionAction = (action: 'submit' | 'withdraw' | 'cancel') =
   useRequisitionMutation((id: string) => apiPost<Requisition>(`${BASE}/${id}/${action}`));
 export const useRequisitionToPO = (id: string) =>
   useRequisitionMutation((v: RequisitionToPOInput) => apiPost<Requisition>(`${BASE}/${id}/create-po`, v));
+
+/* ── Budget check (POST /requisitions/budget-check) ───────────────────────── */
+
+export type BudgetLevel = 'ok' | 'warning' | 'over' | 'unbudgeted';
+
+export interface BudgetLineCheck {
+  cost_line_id: string;
+  code: string | null;
+  description: string | null;
+  unit: string | null;
+  budget: string;
+  budget_qty: string;
+  ordered: string;
+  ordered_qty: string;
+  pending: string;
+  pending_qty: string;
+  this: string;
+  this_qty: string;
+  after: string;
+  remaining: string;
+  used_pct: number | null;
+  level: BudgetLevel;
+}
+
+export interface BudgetCheck {
+  level: BudgetLevel;
+  lines: { index: number; cost_line_id: string | null; level: BudgetLevel }[];
+  budget_lines: BudgetLineCheck[];
+}
+
+export interface BudgetCheckLineInput {
+  boq_position_id?: string | null;
+  cost_line_id?: string | null;
+  quantity: string;
+  unit_cost: string;
+}
+
+/** Live budget check of the lines being typed; refetches when they settle. */
+export function useBudgetCheck(projectId: string, lines: BudgetCheckLineInput[], excludeId?: string) {
+  const key = JSON.stringify(lines);
+  return useQuery({
+    queryKey: [REQUISITIONS_ROOT, 'budget', projectId, excludeId ?? '', key],
+    queryFn: () =>
+      apiPost<BudgetCheck>(`${BASE}/budget-check`, {
+        project_id: projectId,
+        exclude_requisition_id: excludeId,
+        lines,
+      }),
+    enabled: !!projectId && lines.length > 0,
+    staleTime: 10_000,
+    placeholderData: (prev) => prev,
+  });
+}

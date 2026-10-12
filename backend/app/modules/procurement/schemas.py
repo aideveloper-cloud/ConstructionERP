@@ -884,8 +884,26 @@ class RequisitionOut(BaseModel):
     # Latest approval-chain state, so the screen can show "rejected: reason".
     approval_status: str | None = None
     rejection_reason: str | None = None
+    # Budget check stored when the PR was sent (ok / warning / over / unbudgeted).
+    budget_level: str | None = None
     created_at: datetime
     updated_at: datetime
+
+
+class BudgetCheckLine(BaseModel):
+    """One requested line to judge against its BOQ budget line."""
+
+    boq_position_id: str | None = Field(default=None, max_length=36)
+    cost_line_id: str | None = Field(default=None, max_length=36)
+    quantity: str = Field(default="0", max_length=50)
+    unit_cost: str = Field(default="0", max_length=50)
+
+
+class BudgetCheckRequest(BaseModel):
+    project_id: UUID
+    # The PR being edited, so its own earlier submission is not counted twice.
+    exclude_requisition_id: UUID | None = None
+    lines: list[BudgetCheckLine] = Field(default_factory=list, max_length=200)
 
 
 class RequisitionListResponse(BaseModel):

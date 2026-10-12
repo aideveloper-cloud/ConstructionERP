@@ -45,6 +45,12 @@ export interface ApprovalTarget {
   doc_date: string | null;
   status: string | null;
   url: string | null;
+  /** Budget check stored on a purchase requisition. */
+  budget?: {
+    level: 'ok' | 'warning' | 'over' | 'unbudgeted';
+    over?: { cost_line_id: string; code: string | null; description: string | null; remaining: string }[];
+    unbudgeted_lines?: number;
+  } | null;
 }
 
 export interface ApprovalItem {

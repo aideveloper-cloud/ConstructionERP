@@ -114,7 +114,8 @@ export function ApprovalCenterPage() {
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
   useEffect(() => setSelected(new Set()), [tab, kind, projectId, debouncedQ]);
-  const selectable = items.filter((i) => i.can_decide);
+  // Over-budget requests are approved one at a time (the server refuses them in bulk too).
+  const selectable = items.filter((i) => i.can_decide && i.target?.budget?.level !== 'over');
   const allSelected = selectable.length > 0 && selectable.every((i) => selected.has(i.instance_id));
 
   const [dialog, setDialog] = useState<{ decision: 'approved' | 'rejected'; items: ApprovalItem[] } | null>(null);
@@ -347,7 +348,7 @@ function ApprovalCard({
             type="checkbox"
             className="mt-1 h-4 w-4 shrink-0 accent-[var(--oe-blue)]"
             checked={selected}
-            disabled={!item.can_decide}
+            disabled={!item.can_decide || target?.budget?.level === 'over'}
             onChange={(e) => onSelect(e.target.checked)}
             aria-label={target?.code ?? item.target_id}
           />
@@ -395,6 +396,31 @@ function ApprovalCard({
 
           {/* Compact chain */}
           <ChainStrip item={item} />
+
+          {target?.budget && target.budget.level !== 'ok' && (
+            <div
+              data-testid="budget-warning"
+              className={clsx(
+                'mt-2.5 rounded-lg border px-3 py-2 text-xs',
+                target.budget.level === 'over'
+                  ? 'border-[#fecaca] bg-[#fef2f2] text-[#991b1b]'
+                  : 'border-transparent bg-[#fff7e6] text-[#b45309]',
+              )}
+            >
+              <span className="font-semibold">{t(`th_ui.budget.card.${target.budget.level}`)}</span>
+              {(target.budget.over ?? []).map((b) => (
+                <span key={b.cost_line_id} className="ms-1.5">
+                  · <span className="font-mono">{b.code}</span> {b.description}: {t('th_ui.budget.over_by', {
+                    defaultValue: 'เกิน {{amount}}',
+                    amount: fmt.money(String(-Number(b.remaining)), item.currency),
+                  })}
+                </span>
+              ))}
+              {target.budget.level === 'over' && (
+                <span className="mt-0.5 block opacity-80">{t('th_ui.budget.card.single', { defaultValue: 'ต้องอนุมัติทีละใบ' })}</span>
+              )}
+            </div>
+          )}
 
           {item.rejection && (
             <div className="mt-2.5 rounded-lg border border-[#fecaca] bg-[#fef2f2] px-3 py-2 text-xs text-[#991b1b]">

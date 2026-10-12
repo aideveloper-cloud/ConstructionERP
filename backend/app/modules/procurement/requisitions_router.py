@@ -24,6 +24,7 @@ from fastapi import APIRouter, Depends, Query, status
 from app.dependencies import CurrentUserId, RequirePermission, SessionDep, verify_project_access
 from app.modules.procurement.requisitions import RequisitionService
 from app.modules.procurement.schemas import (
+    BudgetCheckRequest,
     RequisitionCreate,
     RequisitionListResponse,
     RequisitionOut,
@@ -81,6 +82,41 @@ async def create_requisition(
     await verify_project_access(data.project_id, str(user_id), session)
     req = await svc.create(data, requester_id=str(user_id))
     return (await svc.to_out([req]))[0]
+
+
+@router.post("/budget-check", dependencies=[Depends(RequirePermission("procurement.read"))])
+async def budget_check(
+    data: BudgetCheckRequest,
+    session: SessionDep,
+    user_id: CurrentUserId,
+) -> dict:
+    """Judge PR lines against their BOQ budget lines (live, while filling the form).
+
+    Per budget line: budget, already ordered, pending in other PRs, this
+    request, what is left, and a level (ok / warning ≥85% / over / unbudgeted).
+    """
+    from decimal import Decimal, InvalidOperation  # noqa: PLC0415
+
+    from app.modules.procurement.budget_check import check_budget  # noqa: PLC0415
+
+    await verify_project_access(data.project_id, str(user_id), session)
+
+    def num(v: str) -> Decimal:
+        try:
+            return Decimal(v or "0")
+        except (InvalidOperation, ValueError):
+            return Decimal("0")
+
+    lines = [
+        {
+            "boq_position_id": ln.boq_position_id,
+            "cost_line_id": ln.cost_line_id,
+            "quantity": num(ln.quantity),
+            "amount": num(ln.quantity) * num(ln.unit_cost),
+        }
+        for ln in data.lines
+    ]
+    return await check_budget(session, data.project_id, lines, exclude_requisition_id=data.exclude_requisition_id)
 
 
 @router.get("/{req_id}", response_model=RequisitionOut, dependencies=[Depends(RequirePermission("procurement.read"))])
