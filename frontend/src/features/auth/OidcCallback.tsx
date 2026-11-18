@@ -30,6 +30,14 @@ export function OidcCallback() {
       return;
     }
 
+    // The answer must belong to the sign-in this browser started (see LoginPage).
+    const expectedState = sessionStorage.getItem('oe_oidc_state');
+    sessionStorage.removeItem('oe_oidc_state');
+    if (expectedState && searchParams.get('state') !== expectedState) {
+      setError('The sign-in expired or did not start here. Please try again.');
+      return;
+    }
+
     fetch('/api/v1/users/auth/oidc/callback/', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

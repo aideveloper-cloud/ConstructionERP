@@ -920,13 +920,20 @@ export function LoginPage() {
                   className="w-full"
                   icon={<ShieldCheck size={16} />}
                   onClick={() => {
+                    // state ties the provider's answer to this browser (checked in OidcCallback).
+                    const state = crypto.randomUUID();
+                    sessionStorage.setItem('oe_oidc_state', state);
                     const params = new URLSearchParams({
                       client_id: oidcConfig.client_id,
                       response_type: 'code',
                       scope: oidcConfig.scopes,
                       redirect_uri: `${window.location.origin}/auth/oidc/callback`,
+                      state,
                     });
-                    window.location.href = `${oidcConfig.issuer_url}/protocol/openid-connect/auth?${params}`;
+                    const authorize =
+                      oidcConfig.authorization_endpoint ||
+                      `${oidcConfig.issuer_url}/protocol/openid-connect/auth`;
+                    window.location.href = `${authorize}?${params}`;
                   }}
                 >
                   {t('auth.sso_login', { defaultValue: 'Sign in with SSO' })}
