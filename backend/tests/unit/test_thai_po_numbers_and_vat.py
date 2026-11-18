@@ -15,8 +15,8 @@ import pytest
 from pydantic import ValidationError
 
 from app.core.thai_doc_numbers import thai_period
-from app.modules.procurement.schemas import POCreate, POUpdate
 from app.modules.procurement import validators as po_checks
+from app.modules.procurement.schemas import POCreate, POUpdate
 from app.modules.procurement.service import ProcurementService, compute_vat
 
 
@@ -83,8 +83,12 @@ def test_wht_rounds_to_satang_half_up():
 
 def test_usual_wht_rates_for_a_company_payee():
     assert WHT_TYPES == {
-        "service": "3", "hire_of_work": "3", "professional": "3",
-        "transport": "1", "advertising": "2", "rent": "5",
+        "service": "3",
+        "hire_of_work": "3",
+        "professional": "3",
+        "transport": "1",
+        "advertising": "2",
+        "rent": "5",
     }
 
 
@@ -94,6 +98,8 @@ def test_wht_type_and_rate_are_validated():
     with pytest.raises(ValidationError):
         POUpdate(wht_rate="150")
     assert POUpdate(wht_type="").wht_type == ""
+
+
 # ── VAT-inclusive orders and the subtotal rule ─────────────────────────────
 # amount_subtotal is stored net of VAT. Lines entered VAT-inclusive add up to
 # net + VAT, so procurement.po_subtotal_matches_lines must compare them with
