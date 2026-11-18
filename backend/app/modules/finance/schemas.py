@@ -421,9 +421,9 @@ class PaymentResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-    _coerce_decimal = field_validator("amount", "exchange_rate_snapshot", "withholding_amount", "wht_amount", mode="before")(
-        lambda cls, v: _decimal_to_str(v)
-    )
+    _coerce_decimal = field_validator(
+        "amount", "exchange_rate_snapshot", "withholding_amount", "wht_amount", mode="before"
+    )(lambda cls, v: _decimal_to_str(v))
 
 
 class PaymentListResponse(BaseModel):

@@ -587,6 +587,8 @@ async def test_existing_payable_invoices_unaffected(session) -> None:
 
     svc = FinanceService(session)
     assert await svc.get_receivable_for_claim(uuid.uuid4()) is None
+
+
 # ── Thai withholding tax (หัก ณ ที่จ่าย) on the one-click settle path ───────
 
 

@@ -1266,6 +1266,8 @@ async def test_resaving_a_linked_invoice_with_its_own_vendor_does_not_recheck_th
             notes="Delivery note 4471 attached",
         ),
     )
+
+
 # ── Thai withholding tax on payments ───────────────────────────────────────
 
 
