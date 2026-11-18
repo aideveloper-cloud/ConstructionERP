@@ -1664,6 +1664,9 @@ class ProcurementService:
             "amount_subtotal": po.amount_subtotal,
             "tax_amount": po.tax_amount,
             "amount_total": po.amount_total,
+            # How line prices were entered (Thai VAT): the subtotal rule needs it,
+            # because VAT-inclusive lines add up to subtotal + VAT, not subtotal.
+            "vat_mode": po.vat_mode,
             "retention_percent": str(po.retention_percent if po.retention_percent is not None else "0"),
             "issue_date": po.issue_date,
             "delivery_date": po.delivery_date,

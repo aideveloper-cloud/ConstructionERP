@@ -7,6 +7,7 @@ rounded to satang half up, with net + VAT always equal to the total.
 
 from __future__ import annotations
 
+import uuid
 from datetime import UTC, datetime
 from decimal import Decimal as D
 
@@ -15,7 +16,8 @@ from pydantic import ValidationError
 
 from app.core.thai_doc_numbers import thai_period
 from app.modules.procurement.schemas import POCreate, POUpdate
-from app.modules.procurement.service import compute_vat
+from app.modules.procurement import validators as po_checks
+from app.modules.procurement.service import ProcurementService, compute_vat
 
 
 def test_the_period_uses_the_buddhist_year():
@@ -92,3 +94,50 @@ def test_wht_type_and_rate_are_validated():
     with pytest.raises(ValidationError):
         POUpdate(wht_rate="150")
     assert POUpdate(wht_type="").wht_type == ""
+# ── VAT-inclusive orders and the subtotal rule ─────────────────────────────
+# amount_subtotal is stored net of VAT. Lines entered VAT-inclusive add up to
+# net + VAT, so procurement.po_subtotal_matches_lines must compare them with
+# subtotal + tax for those orders, or no VAT-inclusive PO could be approved.
+
+
+def _vat_po(mode, lines, subtotal, tax):
+    from app.modules.procurement.models import PurchaseOrder, PurchaseOrderItem
+
+    po = PurchaseOrder(
+        project_id=uuid.UUID("22222222-2222-2222-2222-222222222222"),
+        po_number="PO6911-0099",
+        status="draft",
+        currency_code="THB",
+        amount_subtotal=subtotal,
+        tax_amount=tax,
+        amount_total=str(D(subtotal) + D(tax)),
+        vat_mode=mode,
+        vat_rate="7",
+    )
+    po.items = [
+        PurchaseOrderItem(description=f"line {i}", quantity="1", unit_rate=amount, amount=amount, sort_order=i)
+        for i, amount in enumerate(lines)
+    ]
+    # The dict the service really hands the rules, so dropping vat_mode from it fails here.
+    return ProcurementService(None)._validation_payload(po)  # type: ignore[arg-type]
+
+
+def test_inclusive_lines_match_subtotal_plus_vat():
+    net, vat, total = compute_vat(D("10850"), "inclusive", D("7"))
+    payload = _vat_po("inclusive", ["9250", "1600"], str(net), str(vat))
+    assert payload["vat_mode"] == "inclusive"
+    assert po_checks.check_subtotal_matches_lines(payload) == []
+
+
+def test_inclusive_order_whose_lines_do_not_add_up_is_still_flagged():
+    payload = _vat_po("inclusive", ["9250", "1600"], "9000.00", "630.00")
+    findings = po_checks.check_subtotal_matches_lines(payload)
+    assert len(findings) == 1
+    assert findings[0].details["vat_mode"] == "inclusive"
+
+
+@pytest.mark.parametrize("mode", ["exclusive", "none", None])
+def test_other_modes_still_compare_lines_with_the_net_subtotal(mode):
+    assert po_checks.check_subtotal_matches_lines(_vat_po(mode, ["9250", "1600"], "10850.00", "759.50")) == []
+    # lines equal to net + VAT are wrong when VAT was not inside the prices
+    assert len(po_checks.check_subtotal_matches_lines(_vat_po(mode, ["9250", "1600"], "10140.19", "709.81"))) == 1

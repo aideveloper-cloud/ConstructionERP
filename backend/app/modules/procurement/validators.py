@@ -189,7 +189,11 @@ def check_line_amount(po: dict[str, Any]) -> list[Finding]:
 
 
 def check_subtotal_matches_lines(po: dict[str, Any]) -> list[Finding]:
-    """``amount_subtotal`` must equal the sum of the line amounts.
+    """The line amounts must add up to what the header says they are.
+
+    ``amount_subtotal`` is always net of VAT. With ``vat_mode="inclusive"`` the
+    lines were entered with VAT inside, so they add up to ``amount_subtotal +
+    tax_amount``; in every other mode they add up to ``amount_subtotal``.
 
     Skipped for a PO with no lines: :func:`check_has_lines` already owns that
     case, and reporting it twice would double-count one problem.
@@ -199,13 +203,19 @@ def check_subtotal_matches_lines(po: dict[str, Any]) -> list[Finding]:
         return []
     lines_total = sum((_money(i.get("amount")) for i in items), Decimal("0"))
     subtotal = _money(po.get("amount_subtotal"))
-    if abs(lines_total - subtotal) <= MONEY_TOLERANCE:
+    inclusive = (po.get("vat_mode") or "") == "inclusive"
+    header = subtotal + _money(po.get("tax_amount")) if inclusive else subtotal
+    if abs(lines_total - header) <= MONEY_TOLERANCE:
         return []
+    details = {"lines_total": str(lines_total), "amount_subtotal": str(subtotal)}
+    if inclusive:
+        details["vat_mode"] = "inclusive"
+        details["tax_amount"] = str(_money(po.get("tax_amount")))
     return [
         Finding(
             element_ref=_po_ref(po),
-            params={"expected": _amount(lines_total, po), "actual": _amount(subtotal, po)},
-            details={"lines_total": str(lines_total), "amount_subtotal": str(subtotal)},
+            params={"expected": _amount(lines_total, po), "actual": _amount(header, po)},
+            details=details,
         )
     ]
 
