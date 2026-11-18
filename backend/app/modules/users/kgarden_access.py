@@ -156,8 +156,10 @@ async def _user_by_sub_or_email(session, sub: str, email: str):
     from app.modules.users.models import User
 
     return (
-        await session.execute(select(User).where(or_(User.oidc_sub == sub, User.email == email.lower().strip())))
-    ).scalars().first()
+        (await session.execute(select(User).where(or_(User.oidc_sub == sub, User.email == email.lower().strip()))))
+        .scalars()
+        .first()
+    )
 
 
 async def reactivate(session, sub: str, email: str) -> None:
