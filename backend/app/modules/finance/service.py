@@ -1589,6 +1589,10 @@ class FinanceService:
             reference=data.reference,
             idempotency_key=data.idempotency_key,
             is_refund=bool(data.is_refund),
+            wht_type=data.wht_type,
+            wht_rate=data.wht_rate,
+            wht_amount=_safe_decimal(data.wht_amount),
+            wht_certificate_no=data.wht_certificate_no,
             metadata_=data.metadata,
         )
         payment = await self.payments_repo.create(payment)
@@ -1611,6 +1615,8 @@ class FinanceService:
                     "currency_code": data.currency_code or "",
                     "payment_date": data.payment_date,
                     "reference": data.reference or "",
+                    "wht_amount": str(data.wht_amount),
+                    "wht_type": data.wht_type or "",
                 },
             )
         except Exception as exc:
@@ -2043,12 +2049,15 @@ class FinanceService:
         # the caller intends to pay; gross = cash + withholding. When amount is
         # omitted we settle the whole invoice (gross = amount_total).
         explicit_withholding = _safe_decimal(data.withholding_amount) if data.withholding_amount is not None else None
+        # Thai WHT goes to the Revenue Department, not the supplier: it settles
+        # part of the invoice without being cash or retainage.
+        wht = _safe_decimal(data.wht_amount)
         if data.amount is not None:
             cash_in = _safe_decimal(data.amount)
             withheld = explicit_withholding if explicit_withholding is not None else inv_retention
             gross = cash_in + withheld
         else:
-            gross = inv_total
+            gross = inv_total - wht
             withheld = explicit_withholding if explicit_withholding is not None else inv_retention
 
         amount_to_pay, withholding = compute_payment_withholding(gross, withholding_amount=withheld)
@@ -2066,6 +2075,10 @@ class FinanceService:
             withholding_amount=withholding,
             withholding_release_date=data.withholding_release_date,
             source_claim_id=invoice.source_claim_id,
+            wht_type=data.wht_type,
+            wht_rate=data.wht_rate,
+            wht_amount=wht,
+            wht_certificate_no=data.wht_certificate_no,
             metadata_=data.metadata,
         )
         payment = await self.payments_repo.create(payment)

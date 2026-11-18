@@ -77,7 +77,8 @@ import {
   type TaxConfigRow,
 } from './invoiceLines';
 import { invalidateFinanceFigures } from './financeQueryKeys';
-import { settleAndMarkPaid } from './markInvoicePaid';
+import { settleAndMarkPaid, type PaymentWht } from './markInvoicePaid';
+import { MarkPaidWhtDialog } from './MarkPaidWhtDialog';
 import { budgetCategoryLabel, wbsLabel, type WbsNode } from './budgetLabels';
 import { ContingencyBudgetNote } from '@/features/risk/ContingencyBudgetNote';
 import { useToastStore } from '@/stores/useToastStore';
@@ -2071,6 +2072,8 @@ export function InvoicesTab({ projectId }: { projectId: string }) {
   const userRole = useAuthStore((s) => s.userRole);
   const invoiceProjectName = useProjectContextStore((s) => s.activeProjectName);
   const isManager = userRole === 'admin' || userRole === 'manager';
+  // Supplier invoice being paid through the WHT dialog (หัก ณ ที่จ่าย).
+  const [payingInvoice, setPayingInvoice] = useState<Invoice | null>(null);
   const [subTab, setSubTab] = useState<InvoiceSubTab>('payable');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('');
@@ -2451,7 +2454,10 @@ export function InvoicesTab({ projectId }: { projectId: string }) {
   // status change alone wrote no payment, so payments, cash flow and the
   // statements stayed at zero for every invoice closed from this button.
   const markPaidMutation = useMutation({
-    mutationFn: (invoice: Invoice) => settleAndMarkPaid(invoice, new Date().toISOString().slice(0, 10)),
+    mutationFn: (args: Invoice | { invoice: Invoice; date: string; wht: PaymentWht | null }) =>
+      'invoice' in args
+        ? settleAndMarkPaid(args.invoice, args.date, args.wht)
+        : settleAndMarkPaid(args, new Date().toISOString().slice(0, 10)),
     onSuccess: () => {
       void invalidateFinanceFigures(queryClient);
       addToast({
@@ -2782,6 +2788,10 @@ export function InvoicesTab({ projectId }: { projectId: string }) {
                               variant="primary"
                               size="sm"
                               onClick={async () => {
+                                if (inv.direction === 'payable') {
+                                  setPayingInvoice(inv);
+                                  return;
+                                }
                                 const ok = await confirm({
                                   title: t('finance.confirm_pay_title', { defaultValue: 'Mark as paid?' }),
                                   message: t('finance.confirm_pay_msg_immutable', {
@@ -2912,6 +2922,10 @@ export function InvoicesTab({ projectId }: { projectId: string }) {
                           variant="primary"
                           size="sm"
                           onClick={async () => {
+                            if (inv.direction === 'payable') {
+                              setPayingInvoice(inv);
+                              return;
+                            }
                             const ok = await confirm({
                               title: t('finance.confirm_pay_title', { defaultValue: 'Mark as paid?' }),
                               message: t('finance.confirm_pay_msg_immutable', {
@@ -3341,6 +3355,18 @@ export function InvoicesTab({ projectId }: { projectId: string }) {
 
       {/* Confirm Dialog */}
       <ConfirmDialog {...confirmProps} />
+      <MarkPaidWhtDialog
+        invoice={payingInvoice}
+        busy={markPaidMutation.isPending}
+        onClose={() => setPayingInvoice(null)}
+        onConfirm={(date, wht) => {
+          if (!payingInvoice) return;
+          markPaidMutation.mutate(
+            { invoice: payingInvoice, date, wht },
+            { onSuccess: () => setPayingInvoice(null) },
+          );
+        }}
+      />
     </div>
   );
 }

@@ -4,13 +4,18 @@
 
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator, model_validator
 
 from app.modules.einvoice.rules import VAT_CATEGORY_CODES
 from app.modules.finance.variance import expected_outturn
+
+# Thai withholding-tax income types, the same codes a purchase order carries
+# (procurement.schemas.WhtTypeLiteral). Repeated here so finance does not import
+# the optional procurement module.
+WhtTypeLiteral = Literal["service", "hire_of_work", "professional", "transport", "advertising", "rent"]
 
 
 # ── v3 §10 money serialisation helper ─────────────────────────────────────
@@ -342,12 +347,32 @@ class PaymentCreate(BaseModel):
     withholding_release_date: str | None = Field(default=None, max_length=40)
     # Certified progress claim this payment settles, when applicable.
     source_claim_id: UUID | None = Field(default=None)
+    # Thai withholding tax deducted from this payment (หัก ณ ที่จ่าย).
+    # ``amount`` is the cash the supplier receives; the invoice is settled by
+    # amount + wht_amount. A positive wht_amount needs its income type.
+    wht_type: WhtTypeLiteral | None = None
+    wht_rate: str | None = Field(default=None, max_length=10)
+    wht_amount: str = Field(default="0", max_length=50)
+    wht_certificate_no: str | None = Field(default=None, max_length=50)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
     @field_validator("amount")
     @classmethod
     def _check_positive_amount(cls, v: str) -> str:
         return _validate_positive_decimal(v, "amount")
+
+    @field_validator("wht_amount")
+    @classmethod
+    def _check_non_negative_wht(cls, v: str) -> str:
+        return _validate_non_negative_decimal(v, "wht_amount")
+
+    @model_validator(mode="after")
+    def _wht_needs_its_type(self) -> "PaymentCreate":
+        if Decimal(self.wht_amount) > 0 and not self.wht_type:
+            raise ValueError("wht_type is required when wht_amount is greater than 0")
+        if self.is_refund and Decimal(self.wht_amount) > 0:
+            raise ValueError("a refund cannot carry withholding tax")
+        return self
 
     @field_validator("exchange_rate_snapshot")
     @classmethod
@@ -378,6 +403,11 @@ class PaymentResponse(BaseModel):
     withholding_amount: str = "0"
     withholding_release_date: str | None = None
     source_claim_id: UUID | None = None
+    # Thai withholding tax deducted from this payment.
+    wht_type: str | None = None
+    wht_rate: str | None = None
+    wht_amount: str = "0"
+    wht_certificate_no: str | None = None
     # Enriched server-side from the parent invoice so the payments table can
     # show a human-readable reference instead of a raw invoice UUID. Resolved
     # in the router (mirrors the counterparty-name enrichment on invoices).
@@ -391,7 +421,7 @@ class PaymentResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-    _coerce_decimal = field_validator("amount", "exchange_rate_snapshot", "withholding_amount", mode="before")(
+    _coerce_decimal = field_validator("amount", "exchange_rate_snapshot", "withholding_amount", "wht_amount", mode="before")(
         lambda cls, v: _decimal_to_str(v)
     )
 
@@ -441,6 +471,13 @@ class RecordClaimPaymentRequest(BaseModel):
     # When None the service derives it from the invoice retention_amount.
     withholding_amount: str | None = Field(default=None, max_length=50)
     withholding_release_date: str | None = Field(default=None, max_length=40)
+    # Thai withholding tax deducted from this payment (see PaymentCreate). It is
+    # separate from retainage: the supplier gets amount, the Revenue Department
+    # gets wht_amount, and both count towards settling the invoice.
+    wht_type: WhtTypeLiteral | None = None
+    wht_rate: str | None = Field(default=None, max_length=10)
+    wht_amount: str = Field(default="0", max_length=50)
+    wht_certificate_no: str | None = Field(default=None, max_length=50)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
     @field_validator("amount", "withholding_amount")
@@ -449,6 +486,17 @@ class RecordClaimPaymentRequest(BaseModel):
         if v is None:
             return v
         return _validate_non_negative_decimal(v)
+
+    @field_validator("wht_amount")
+    @classmethod
+    def _check_non_negative_wht(cls, v: str) -> str:
+        return _validate_non_negative_decimal(v, "wht_amount")
+
+    @model_validator(mode="after")
+    def _wht_needs_its_type(self) -> "RecordClaimPaymentRequest":
+        if Decimal(self.wht_amount) > 0 and not self.wht_type:
+            raise ValueError("wht_type is required when wht_amount is greater than 0")
+        return self
 
     @field_validator("exchange_rate_snapshot")
     @classmethod

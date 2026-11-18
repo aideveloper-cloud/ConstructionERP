@@ -396,6 +396,10 @@ describe('Mark Paid writes the payment before it closes the invoice', () => {
     renderTab();
 
     await user.click(screen.getAllByRole('button', { name: /^mark paid$/i })[0] as HTMLElement);
+    // A supplier invoice is paid through the withholding-tax dialog; nothing withheld here.
+    const pay = await screen.findByRole('button', { name: 'บันทึกจ่ายและปิดใบแจ้งหนี้' });
+    await waitFor(() => expect(pay).toBeEnabled());
+    await user.click(pay);
 
     await waitFor(() => expect(harness.posted.map((p) => p.url)).toEqual([
       '/v1/finance/invoices/inv-9/record-payment/',
@@ -405,6 +409,43 @@ describe('Mark Paid writes the payment before it closes the invoice', () => {
       amount: '600.00',
       currency_code: 'EUR',
       idempotency_key: 'markpaid:inv-9',
+    });
+    expect(harness.posted[0]?.body).not.toHaveProperty('wht_amount');
+  });
+
+  it('deducts Thai withholding tax from what the supplier is paid', async () => {
+    useAuthStore.setState({ userRole: 'admin' });
+    harness.invoices = [
+      {
+        id: 'inv-10',
+        invoice_number: 'AP-10',
+        invoice_direction: 'payable',
+        invoice_date: '2026-11-18',
+        amount_subtotal: '35000.00',
+        amount_total: '37450.00',
+        currency_code: 'THB',
+        status: 'approved',
+        line_items: [],
+      },
+    ];
+    harness.payments = [];
+    const user = userEvent.setup();
+    renderTab();
+
+    await user.click(screen.getAllByRole('button', { name: /^mark paid$/i })[0] as HTMLElement);
+    await user.selectOptions(await screen.findByTestId('wht-type'), 'hire_of_work');
+    const amount = screen.getByTestId('wht-amount');
+    await user.clear(amount);
+    await user.type(amount, '600');
+    expect(screen.getByTestId('wht-net')).toHaveTextContent('36,850.00');
+    await user.click(screen.getByRole('button', { name: 'บันทึกจ่ายและปิดใบแจ้งหนี้' }));
+
+    await waitFor(() => expect(harness.posted).toHaveLength(2));
+    expect(harness.posted[0]?.body).toMatchObject({
+      amount: '36850.00',
+      wht_type: 'hire_of_work',
+      wht_rate: '3',
+      wht_amount: '600.00',
     });
   });
 });

@@ -72,3 +72,39 @@ describe('settleAndMarkPaid', () => {
     expect(api.posted.map((p) => p.url)).toEqual(['/v1/finance/inv-1/pay/']);
   });
 });
+describe('Thai withholding tax (หัก ณ ที่จ่าย)', () => {
+  it('counts WHT already deducted as settled', () => {
+    const left = remainingSettlement({ id: 'i', amount_total: '37450' }, [{ amount: '18425', wht_amount: '300' }]);
+    expect(left).toEqual({ gross: 18725, cash: 18725, withheld: 0 });
+  });
+
+  it('pays the supplier the rest and records the WHT on the payment', async () => {
+    await settleAndMarkPaid({ id: 'inv-1', amount_total: '37450.00', currency_code: 'THB' }, '2026-11-25', {
+      type: 'hire_of_work',
+      rate: 3,
+      amount: 600,
+      certificateNo: 'WHT-6911-0001',
+    });
+    expect(api.posted[0].body).toMatchObject({
+      amount: '36850.00',
+      wht_type: 'hire_of_work',
+      wht_rate: '3',
+      wht_amount: '600.00',
+      wht_certificate_no: 'WHT-6911-0001',
+    });
+    expect(api.posted[1].url).toContain('/pay/');
+  });
+
+  it('sends no WHT fields when nothing is withheld', async () => {
+    await settleAndMarkPaid({ id: 'inv-2', amount_total: '1000' }, '2026-11-25', null);
+    expect(api.posted[0].body).not.toHaveProperty('wht_amount');
+    expect(api.posted[0].body).toMatchObject({ amount: '1000.00' });
+  });
+
+  it('refuses WHT larger than what is left to pay', async () => {
+    await expect(
+      settleAndMarkPaid({ id: 'inv-3', amount_total: '100' }, '2026-11-25', { type: 'service', rate: 3, amount: 200 }),
+    ).rejects.toThrow(/more than/);
+    expect(api.posted).toHaveLength(0);
+  });
+});
