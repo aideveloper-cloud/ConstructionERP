@@ -587,3 +587,41 @@ async def test_existing_payable_invoices_unaffected(session) -> None:
 
     svc = FinanceService(session)
     assert await svc.get_receivable_for_claim(uuid.uuid4()) is None
+
+
+# ── Thai withholding tax (หัก ณ ที่จ่าย) on the one-click settle path ───────
+
+
+@pytest.mark.asyncio
+async def test_settling_a_supplier_invoice_with_thai_wht(session, monkeypatch) -> None:
+    """The supplier gets the total less WHT; cash + WHT settle the invoice."""
+    _patch_spine(monkeypatch)
+    project = await _make_project(session)
+    invoice = Invoice(
+        project_id=project.id,
+        invoice_direction="payable",
+        invoice_number="INV-WHT-1",
+        invoice_date="2026-11-18",
+        currency_code="THB",
+        amount_subtotal=Decimal("35000"),
+        tax_amount=Decimal("2450"),
+        amount_total=Decimal("37450"),
+        status="approved",
+    )
+    session.add(invoice)
+    await session.flush()
+
+    payment = await FinanceService(session).record_payment_with_withholding(
+        invoice.id,
+        RecordClaimPaymentRequest(
+            payment_date="2026-11-25",
+            wht_type="hire_of_work",
+            wht_rate="3",
+            wht_amount="600",
+            wht_certificate_no="WHT-6911-0001",
+        ),
+    )
+    assert Decimal(str(payment.amount)) == Decimal("36850.00")
+    assert Decimal(str(payment.wht_amount)) == Decimal("600.00")
+    assert Decimal(str(payment.withholding_amount)) == Decimal("0")
+    assert payment.wht_certificate_no == "WHT-6911-0001"

@@ -177,6 +177,21 @@ class Payment(Base):
         default=Decimal("0"),
         server_default="0",
     )
+    # ── Thai withholding tax (หัก ณ ที่จ่าย) ──────────────────────────────
+    # The payer deducts WHT from what it pays the supplier and remits it to the
+    # Revenue Department on ภ.ง.ด.3 / 53, issuing a certificate (หนังสือรับรอง
+    # การหักภาษี ณ ที่จ่าย). ``amount`` stays the cash paid to the supplier; the
+    # invoice is settled by amount + wht_amount. ``wht_type`` uses the PO's
+    # income types (service, hire_of_work, ...). Nothing withheld: amount 0.
+    wht_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    wht_rate: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    wht_amount: Mapped[Decimal] = mapped_column(
+        MoneyType(),
+        nullable=False,
+        default=Decimal("0"),
+        server_default="0",
+    )
+    wht_certificate_no: Mapped[str | None] = mapped_column(String(50), nullable=True)
     # The certified progress claim this payment settles, when it originated
     # from one. Plain GUID (no cross-module FK) - same rationale as
     # ``Invoice.source_claim_id``. NULL for ordinary non-claim payments.

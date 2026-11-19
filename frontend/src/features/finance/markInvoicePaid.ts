@@ -14,7 +14,17 @@ export interface SettleableInvoice {
 interface PaymentRow {
   amount: string;
   withholding_amount?: string | null;
+  /** Thai withholding tax deducted from the payment; it settles the invoice like cash. */
+  wht_amount?: string | null;
   is_refund?: boolean;
+}
+
+/** Thai withholding tax (หัก ณ ที่จ่าย) deducted from the settling payment. */
+export interface PaymentWht {
+  type: string;
+  rate: number;
+  amount: number;
+  certificateNo?: string;
 }
 
 function num(value: unknown): number {
@@ -43,7 +53,7 @@ export function remainingSettlement(
   let withheldBefore = 0;
   for (const p of payments) {
     const sign = p.is_refund ? -1 : 1;
-    settled += sign * (num(p.amount) + num(p.withholding_amount));
+    settled += sign * (num(p.amount) + num(p.withholding_amount) + num(p.wht_amount));
     if (!p.is_refund) withheldBefore += num(p.withholding_amount);
   }
   const gross = cents(Math.max(0, total - settled));
@@ -63,7 +73,11 @@ export function remainingSettlement(
  * made instead of paying twice. An invoice already settled in full by earlier
  * payments records nothing more.
  */
-export async function settleAndMarkPaid(invoice: SettleableInvoice, paymentDate: string): Promise<void> {
+export async function settleAndMarkPaid(
+  invoice: SettleableInvoice,
+  paymentDate: string,
+  wht?: PaymentWht | null,
+): Promise<void> {
   // Every earlier payment, not the first page of them: a short read would
   // leave part of the invoice looking open and pay it a second time.
   const payments: PaymentRow[] = [];
@@ -77,12 +91,25 @@ export async function settleAndMarkPaid(invoice: SettleableInvoice, paymentDate:
   }
   const { gross, cash, withheld } = remainingSettlement(invoice, payments);
   if (gross > 0) {
+    // WHT goes to the Revenue Department: the supplier is paid the rest.
+    const whtAmount = wht && wht.amount > 0 ? cents(wht.amount) : 0;
+    if (whtAmount > cash) {
+      throw new Error(`Withholding tax ${whtAmount.toFixed(2)} is more than the ${cash.toFixed(2)} left to pay`);
+    }
     await apiPost(`/v1/finance/invoices/${encodeURIComponent(invoice.id)}/record-payment/`, {
       payment_date: paymentDate,
-      amount: cash.toFixed(2),
+      amount: cents(cash - whtAmount).toFixed(2),
       withholding_amount: withheld.toFixed(2),
       currency_code: invoice.currency_code || '',
       idempotency_key: `markpaid:${invoice.id}`,
+      ...(whtAmount > 0 && wht
+        ? {
+            wht_type: wht.type,
+            wht_rate: String(wht.rate),
+            wht_amount: whtAmount.toFixed(2),
+            wht_certificate_no: wht.certificateNo || null,
+          }
+        : {}),
     });
   }
   await apiPost(`/v1/finance/${encodeURIComponent(invoice.id)}/pay/`);

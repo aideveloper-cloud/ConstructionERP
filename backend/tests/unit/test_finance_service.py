@@ -1266,3 +1266,55 @@ async def test_resaving_a_linked_invoice_with_its_own_vendor_does_not_recheck_th
             notes="Delivery note 4471 attached",
         ),
     )
+
+
+# ── Thai withholding tax on payments ───────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_payment_records_thai_withholding_tax() -> None:
+    """Cash to the supplier plus the WHT withheld settle the invoice; both are kept."""
+    service = _make_service()
+    invoice = await service.create_invoice(
+        InvoiceCreate(
+            project_id=uuid.uuid4(),
+            invoice_direction="payable",
+            invoice_date="2026-11-18",
+            amount_subtotal="35000",
+            tax_amount="2450",
+        )
+    )
+    payment = await service.create_payment(
+        PaymentCreate(
+            invoice_id=invoice.id,
+            payment_date="2026-11-25",
+            amount="36850",
+            wht_type="hire_of_work",
+            wht_rate="3",
+            wht_amount="600",
+            wht_certificate_no="WHT-6911-0001",
+        )
+    )
+    assert Decimal(payment.amount) + Decimal(payment.wht_amount) == Decimal("37450")
+    assert (payment.wht_type, payment.wht_rate, payment.wht_certificate_no) == ("hire_of_work", "3", "WHT-6911-0001")
+
+
+def test_payment_without_wht_defaults_to_zero() -> None:
+    data = PaymentCreate(invoice_id=uuid.uuid4(), payment_date="2026-11-25", amount="100")
+    assert data.wht_amount == "0" and data.wht_type is None
+
+
+@pytest.mark.parametrize(
+    "fields",
+    [
+        {"wht_amount": "600"},  # no income type
+        {"wht_amount": "-1", "wht_type": "service"},  # negative
+        {"wht_amount": "10", "wht_type": "salary"},  # not a WHT income type
+        {"wht_amount": "10", "wht_type": "service", "is_refund": True},  # refunds carry no WHT
+    ],
+)
+def test_invalid_withholding_is_refused(fields: dict[str, Any]) -> None:
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        PaymentCreate(invoice_id=uuid.uuid4(), payment_date="2026-11-25", amount="100", **fields)
