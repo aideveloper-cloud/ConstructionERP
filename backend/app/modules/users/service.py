@@ -681,6 +681,16 @@ class UserService:
                 detail="Invalid email or password",
             )
 
+        # K Garden central access: people sign in through ERPNext; a password only works for the
+        # break-glass accounts. Checked after the password, so it never reveals that an account exists.
+        from app.modules.users.kgarden_access import password_login_allowed
+
+        if not password_login_allowed(user.email):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail='บัญชีนี้เข้าสู่ระบบด้วยปุ่ม "เข้าสู่ระบบด้วย K Garden"',
+            )
+
         if not user.is_active:
             # Return same generic error as invalid credentials to avoid
             # revealing whether an account exists or its activation status
@@ -989,16 +999,16 @@ class UserService:
                 )
                 self.session.add(user)
                 await self.session.flush()
-        else:
-            # Existing OIDC user - sync role from groups on every login
-            if role_from_groups and user.role != role_from_groups:
-                user.role = role_from_groups
-                await self.session.flush()
             else:
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,
                     detail="No matching account found and auto-creation is disabled.",
                 )
+        elif role_from_groups and user.role != role_from_groups:
+            # Existing OIDC user - sync role from groups on every login. (A returning user whose
+            # role did not change used to fall into the "no matching account" refusal above.)
+            user.role = role_from_groups
+            await self.session.flush()
 
         if not user.is_active:
             raise HTTPException(

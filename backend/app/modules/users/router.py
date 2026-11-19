@@ -446,9 +446,22 @@ async def oidc_config() -> dict:
     s = get_settings()
     if not s.oidc_enabled or not s.oidc_issuer_url:
         return {"enabled": False}
+    # The provider's authorization endpoint from its discovery document, so the login page works
+    # with any OIDC provider (ERPNext / K Garden core, Keycloak, ...), not only Keycloak's path.
+    authorization_endpoint = ""
+    import httpx
+
+    try:
+        async with httpx.AsyncClient(timeout=5) as client:
+            disc = await client.get(f"{s.oidc_issuer_url.rstrip('/')}/.well-known/openid-configuration")
+            if disc.status_code == 200:
+                authorization_endpoint = disc.json().get("authorization_endpoint", "")
+    except httpx.HTTPError:
+        pass
     return {
         "enabled": True,
         "issuer_url": s.oidc_issuer_url,
+        "authorization_endpoint": authorization_endpoint,
         "client_id": s.oidc_client_id,
         "scopes": s.oidc_scopes,
     }
@@ -516,7 +529,10 @@ async def oidc_callback(
             raise HTTPException(status_code=401, detail="Could not fetch user info from OIDC provider.")
         userinfo = userinfo_resp.json()
 
-    sub = userinfo.get("sub", "")
+    from app.modules.users import kgarden_access
+
+    kgarden = kgarden_access.is_kgarden(userinfo)
+    sub = kgarden_access.subject(userinfo) if kgarden else userinfo.get("sub", "")
     email = userinfo.get("email", "")
     name = userinfo.get("name", "") or userinfo.get("preferred_username", "")
     groups: list[str] = userinfo.get("groups", [])
@@ -538,7 +554,11 @@ async def oidc_callback(
                 role_from_groups = mapped
                 break
 
-    return await service.oidc_login(
+    if kgarden:
+        # K Garden central access: ERPNext decides access (403 without it), role and projects.
+        role_from_groups = kgarden_access.role_for(userinfo)
+        await kgarden_access.reactivate(service.session, sub, email)
+    tokens = await service.oidc_login(
         oidc_sub=sub,
         oidc_issuer=s.oidc_issuer_url,
         email=email,
@@ -546,6 +566,9 @@ async def oidc_callback(
         auto_create=s.oidc_auto_create_users,
         role_from_groups=role_from_groups,
     )
+    if kgarden:
+        await kgarden_access.sync_projects_for(service.session, sub, kgarden_access.project_ids(userinfo))
+    return tokens
 
 
 # ── Desktop first-run / bootstrap ───────────────────────────────────────────
