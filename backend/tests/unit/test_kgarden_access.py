@@ -80,6 +80,27 @@ def test_project_scope(on):
     assert kg.project_ids({"scopes": ["PROJ-1"], "scope_refs": {"PROJ-1": str(p1)}}) == [p1]
 
 
+def test_setup_problem_when_dotenv_is_not_exported(monkeypatch):
+    # The rest of the app reads .env itself; this module only sees the process environment.
+    monkeypatch.delenv("KGARDEN_ACCESS_ENABLED", raising=False)
+    problem = kg.setup_problem(True, {"KGARDEN_ACCESS_ENABLED": "true"})
+    assert problem and "not in the process environment" in problem
+
+
+def test_setup_problem_when_oidc_runs_without_central_access(monkeypatch):
+    monkeypatch.delenv("KGARDEN_ACCESS_ENABLED", raising=False)
+    problem = kg.setup_problem(True, {})
+    assert problem and "default role" in problem
+    assert kg.setup_problem(False, {}) is None  # plain local install: nothing to warn about
+
+
+def test_setup_problem_without_the_access_api_key(on, monkeypatch):
+    monkeypatch.delenv("KGARDEN_ACCESS_API_KEY", raising=False)
+    assert "KGARDEN_ACCESS_API_KEY" in (kg.setup_problem(True, {}) or "")
+    monkeypatch.setenv("KGARDEN_ACCESS_API_KEY", "key")
+    assert kg.setup_problem(True, {}) is None
+
+
 # ── OIDC sign-in (UserService.oidc_login) ──────────────────────────────────
 
 import pytest_asyncio  # noqa: E402
