@@ -253,9 +253,54 @@ async def watch_access(every_seconds: float) -> None:
 _task: asyncio.Task | None = None
 
 
+def setup_problem(oidc_enabled: bool, env_file: dict[str, str | None]) -> str | None:
+    """Why central access would not work as set up, or None when it is fine.
+
+    The rest of the app reads ``backend/.env`` itself, but this module reads the process
+    environment. A process started without exporting ``.env`` therefore still signs people in
+    through ERPNext, only as plain OIDC: everyone gets the default role, no project scope, and
+    access removed in ERPNext does not end their sessions here.
+    """
+    if not enabled():
+        file_value = str(env_file.get("KGARDEN_ACCESS_ENABLED") or "").strip().lower()
+        if file_value in {"1", "true", "yes", "on"}:
+            return (
+                "KGARDEN_ACCESS_ENABLED is on in .env but not in the process environment, so K Garden "
+                "central access is OFF: export .env (or pass it to the container) and restart"
+            )
+        if oidc_enabled:
+            return (
+                "OIDC sign-in is on but KGARDEN_ACCESS_ENABLED is not: people signing in through "
+                "ERPNext get the default role and no project scope, and losing access in ERPNext "
+                "does not end their sessions here"
+            )
+        return None
+    if not os.environ.get("KGARDEN_ACCESS_API_KEY"):
+        return (
+            "KGARDEN_ACCESS_API_KEY is not set: access removed or changed in ERPNext will not end "
+            "sessions here until the person signs in again"
+        )
+    return None
+
+
+def _warn_on_setup_problem() -> None:
+    from dotenv import dotenv_values
+
+    from app.config import _find_env_file, get_settings
+
+    env_file: dict[str, str | None] = {}
+    for path in _find_env_file():
+        env_file = {**dotenv_values(path), **env_file}  # backend/.env wins, as in Settings
+    problem = setup_problem(bool(get_settings().oidc_enabled), env_file)
+    if problem:
+        logger.warning("K Garden access: %s", problem)
+
+
 def start_watcher() -> None:
     """Start the access-change poller once per process (no-op while central access is off)."""
     global _task
+    with contextlib.suppress(Exception):  # a warning must never stop the app starting
+        _warn_on_setup_problem()
     if not enabled() or not os.environ.get("KGARDEN_ACCESS_API_KEY") or (_task and not _task.done()):
         return
     every = float(os.environ.get("KGARDEN_ACCESS_POLL_SECONDS", "60"))
