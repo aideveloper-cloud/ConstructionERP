@@ -578,9 +578,7 @@ class UserService:
         # column is required and unique, so it holds a placeholder on the
         # reserved ``.invalid`` domain that can never receive mail.
         email = (
-            data.email.lower()
-            if data.email is not None
-            else f"{(data.employee_code or '').lower()}@employee.invalid"
+            data.email.lower() if data.email is not None else f"{(data.employee_code or '').lower()}@employee.invalid"
         )
 
         user = User(

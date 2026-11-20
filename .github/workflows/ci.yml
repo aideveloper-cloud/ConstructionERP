@@ -56,6 +56,13 @@ concurrency:
   # commit, which is why it is not the default.
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
+# The Thai edition (th-main) leaves about a hundred modules unloaded by default
+# (backend/app/core/thai_edition.py), so their routes answer 404. Their code and
+# tests are still here, and loaded modules import some of it, so the suite runs
+# with every module loaded and keeps testing all of it.
+env:
+  OE_ALL_MODULES: "1"
+
 jobs:
   version-sync:
     name: Version Sync Check

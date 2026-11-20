@@ -99,7 +99,9 @@ class RequisitionService(MaterialRequisitionService):
     async def _project_currency(self, project_id: uuid.UUID) -> str:
         from app.modules.projects.models import Project  # noqa: PLC0415
 
-        cur = (await self.session.execute(select(Project.currency).where(Project.id == project_id))).scalar_one_or_none()
+        cur = (
+            await self.session.execute(select(Project.currency).where(Project.id == project_id))
+        ).scalar_one_or_none()
         return cur or ""
 
     # ── CRUD ─────────────────────────────────────────────────────────────
@@ -233,14 +235,18 @@ class RequisitionService(MaterialRequisitionService):
         req = await self.get_requisition(req_id)
         _mr_assert_transition(req.status, "draft")
         pending = (
-            await self.session.execute(
-                select(Instance.id).where(
-                    Instance.target_kind == TARGET_KIND,
-                    Instance.target_id == req.id,
-                    Instance.status == "pending",
+            (
+                await self.session.execute(
+                    select(Instance.id).where(
+                        Instance.target_kind == TARGET_KIND,
+                        Instance.target_id == req.id,
+                        Instance.status == "pending",
+                    )
                 )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         svc = ApprovalRouteService(self.session)
         for instance_id in pending:
             await svc.cancel_instance(instance_id, actor_id=_uuid(user_id), reason="withdrawn by requester")
@@ -319,8 +325,10 @@ class RequisitionService(MaterialRequisitionService):
         ``received``. Called from the ``procurement.gr.confirmed`` subscriber.
         """
         reqs = (
-            await self.session.execute(select(MaterialRequisition).where(MaterialRequisition.po_id == po_id))
-        ).scalars().all()
+            (await self.session.execute(select(MaterialRequisition).where(MaterialRequisition.po_id == po_id)))
+            .scalars()
+            .all()
+        )
         if not reqs:
             return
         po = await ProcurementService(self.session).get_po(po_id)
@@ -380,7 +388,9 @@ class RequisitionService(MaterialRequisitionService):
         if po_ids:
             from app.modules.procurement.router import _fetch_vendor_names  # noqa: PLC0415
 
-            rows = (await self.session.execute(select(PurchaseOrder).where(PurchaseOrder.id.in_(po_ids)))).scalars().all()
+            rows = (
+                (await self.session.execute(select(PurchaseOrder).where(PurchaseOrder.id.in_(po_ids)))).scalars().all()
+            )
             vendors = await _fetch_vendor_names(self.session, [p.vendor_contact_id for p in rows])
             pos = {
                 p.id: RequisitionPOLink(
@@ -394,12 +404,16 @@ class RequisitionService(MaterialRequisitionService):
             }
         # Latest approval instance per requisition, and its rejection reason.
         inst_rows = (
-            await self.session.execute(
-                select(Instance)
-                .where(Instance.target_kind == TARGET_KIND, Instance.target_id.in_([r.id for r in reqs]))
-                .order_by(Instance.started_at.desc())
+            (
+                await self.session.execute(
+                    select(Instance)
+                    .where(Instance.target_kind == TARGET_KIND, Instance.target_id.in_([r.id for r in reqs]))
+                    .order_by(Instance.started_at.desc())
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         latest: dict[uuid.UUID, Any] = {}
         for inst in inst_rows:
             latest.setdefault(inst.target_id, inst)
@@ -451,4 +465,3 @@ def _uuid(value: object) -> uuid.UUID | None:
         return uuid.UUID(str(value)) if value else None
     except (ValueError, TypeError):
         return None
-

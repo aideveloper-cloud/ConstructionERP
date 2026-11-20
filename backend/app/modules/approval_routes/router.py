@@ -833,7 +833,11 @@ async def approval_queue_decide(
         caller_role=user_payload.get("role"),
         accessible_project_ids=await _scope_ids(session, user_id),
     )
-    return {"results": results, "ok": sum(1 for r in results if r["ok"]), "failed": sum(1 for r in results if not r["ok"])}
+    return {
+        "results": results,
+        "ok": sum(1 for r in results if r["ok"]),
+        "failed": sum(1 for r in results if not r["ok"]),
+    }
 
 
 @router.post(
