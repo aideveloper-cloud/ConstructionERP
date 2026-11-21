@@ -92,6 +92,13 @@ on:
     - cron: "30 2 * * *"
   workflow_dispatch:
 
+# The Thai edition (th-main) leaves about a hundred modules unloaded by default
+# (backend/app/core/thai_edition.py), so their routes answer 404. Their code and
+# tests are still here, and loaded modules import some of it, so the suite runs
+# with every module loaded and keeps testing all of it.
+env:
+  OE_ALL_MODULES: "1"
+
 jobs:
   backend-full:
     name: Backend Full Suite (shard ${{ matrix.shard }}/32)
